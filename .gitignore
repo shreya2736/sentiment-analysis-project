@@ -1,0 +1,19 @@
+# API keys - KEEP THIS PRIVATE!
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environments  
+venv/
+env/
+
+# Data files
+*.csv
+*.png
+*.jpg
+
+# System files
+.DS_Store
+Thumbs.db
