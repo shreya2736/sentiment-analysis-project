@@ -15,8 +15,8 @@ def get_secret(key):
         return os.getenv(key)
 
 # Use the function to get keys
-NEWS_API_KEY = get_secret("NEWS_API_KEY")
-SERP_API_KEY = get_secret("SERP_API_KEY")
+NEWSAPI_KEY = get_secret("NEWS_API_KEY")
+SERPAPI_KEY = get_secret("SERP_API_KEY")
 TWITTER_BEARER_TOKEN = get_secret("TWITTER_BEARER_TOKEN")
 REDDIT_CLIENT_ID = get_secret("REDDIT_CLIENT_ID")
 REDDIT_CLIENT_SECRET = get_secret("REDDIT_CLIENT_SECRET")
