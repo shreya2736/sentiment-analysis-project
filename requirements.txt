@@ -22,3 +22,6 @@ slack_sdk>=3.20.0
 # Utilities
 python-dotenv>=1.0.0
 python-dateutil>=2.8.0
+
+streamlit>=1.28.0
+plotly>=5.15.0
