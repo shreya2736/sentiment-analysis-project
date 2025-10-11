@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import os
 import sys
 import numpy as np
+from config import QUERY
 
 # Configure the page
 st.set_page_config(
@@ -88,9 +89,38 @@ class StreamlitDashboard:
         # Sidebar filters
         st.sidebar.title("Dashboard Controls")
         
+        # === DATA COLLECTION BUTTON ===
+        st.sidebar.subheader("Data Collection")
+        if st.sidebar.button("🔄 Collect New Data", type="primary"):
+            with st.spinner("Collecting data from APIs... This may take a few minutes."):
+                try:
+                    from data_collector import collect_all_data
+                    from data_preprocessor import clean_and_preprocess_data
+                    from sentiment_analyzer import analyze_sentiment_with_finbert
+                    
+                    # Run data collection pipeline
+                    st.sidebar.info("Step 1/3: Collecting data...")
+                    df_raw = collect_all_data(QUERY)
+                    
+                    if not df_raw.empty:
+                        st.sidebar.info("Step 2/3: Preprocessing data...")
+                        df_clean = clean_and_preprocess_data()
+                        
+                        st.sidebar.info("Step 3/3: Analyzing sentiment...")
+                        df_sentiment = analyze_sentiment_with_finbert()
+                        
+                        st.sidebar.success("Data collection complete!")
+                        st.rerun()  # Refresh the dashboard with new data
+                    else:
+                        st.sidebar.error("No data collected. Check API keys.")
+                        
+                except Exception as e:
+                    st.sidebar.error(f"Error during data collection: {str(e)}")
+        
         # Data status
         if self.df.empty:
             st.sidebar.error("No data available")
+            st.sidebar.info("💡 Click the button above to collect data")
             return
         
         # Filters
@@ -570,7 +600,7 @@ class StreamlitDashboard:
         if alerts_list:
             alerts_df = pd.DataFrame(alerts_list)
             alerts_df = alerts_df.sort_values('date', ascending=False)
-            st.dataframe(alerts_df.head(10), width='stretch')  # FIXED: use_container_width -> width='stretch'
+            st.dataframe(alerts_df.head(10), width='stretch')
         else:
             st.info("No alerts triggered in the selected period.")
     
@@ -603,12 +633,12 @@ class StreamlitDashboard:
         if os.path.exists("dashboard_forecast.png"):
             with col1:
                 st.subheader("Forecast Overview")
-                st.image("dashboard_forecast.png", use_container_width=True)  # FIXED: use_column_width -> use_container_width
+                st.image("dashboard_forecast.png", use_container_width=True)
         
         if os.path.exists("prophet_forecast.png"):
             with col2:
                 st.subheader("Forecast Components")
-                st.image("prophet_forecast.png", use_container_width=True)  # FIXED: use_column_width -> use_container_width
+                st.image("prophet_forecast.png", use_container_width=True)
         
         # Display forecast data if available
         if os.path.exists("sentiment_forecast.csv"):
@@ -632,7 +662,7 @@ class StreamlitDashboard:
                 st.metric("Avg Confidence Width", f"{confidence_width:.3f}")
             
             # Display forecast table
-            st.dataframe(forecast_df, width='stretch')  # FIXED: use_container_width -> width='stretch'
+            st.dataframe(forecast_df, width='stretch')
 
 def main():
     """Main Streamlit application"""
