@@ -24,5 +24,5 @@ REDDIT_USER_AGENT = get_secret("REDDIT_USER_AGENT")
 SLACK_BOT_TOKEN = get_secret("SLACK_BOT_TOKEN")
 SLACK_CHANNEL = get_secret("SLACK_CHANNEL") or "#alerts"
 
-QUERY = "industry trends OR competitor analysis OR market insights OR Artificial Intelligence"
+QUERY = "industry trends OR competitor analysis OR market insights OR Artificial Intelligence OR finance OR technology OR healthcare OR energy OR retail OR manufacturing"
 MAX_RESULTS = 100

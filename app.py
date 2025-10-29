@@ -7,11 +7,14 @@ import os
 import sys
 import numpy as np
 from config import QUERY
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 # Configure the page
 st.set_page_config(
     page_title="Strategic Intelligence Dashboard",
-    page_icon="",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -24,12 +27,14 @@ st.markdown("""
         color: #1f77b4;
         text-align: center;
         margin-bottom: 2rem;
+        font-weight: bold;
     }
     .metric-card {
         background-color: #f0f2f6;
         padding: 1rem;
         border-radius: 10px;
         border-left: 4px solid #1f77b4;
+        margin: 0.5rem 0;
     }
     .alert-positive {
         background-color: #d4edda;
@@ -51,6 +56,12 @@ st.markdown("""
         padding: 0.5rem;
         border-radius: 5px;
         margin: 0.5rem 0;
+    }
+    .section-header {
+        font-size: 1.5rem;
+        color: #2c3e50;
+        margin: 1rem 0;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -75,69 +86,77 @@ class StreamlitDashboard:
             self.daily_sentiment.columns = ['date', 'avg_sentiment', 'sentiment_std', 'article_count']
             self.daily_sentiment['date'] = pd.to_datetime(self.daily_sentiment['date'])
             
+            st.success(f"✅ Loaded {len(self.df)} records with sentiment analysis")
+            
         except FileNotFoundError:
-            st.error("Data files not found. Please run the sentiment analysis pipeline first.")
+            st.error("❌ Data files not found. Please run the sentiment analysis pipeline first.")
             self.df = pd.DataFrame()
             self.daily_sentiment = pd.DataFrame()
     
     def run(self):
         """Main dashboard interface"""
         # Header
-        st.markdown('<h1 class="main-header">Strategic Intelligence Dashboard</h1>', 
+        st.markdown('<h1 class="main-header">📊 Strategic Intelligence Dashboard</h1>', 
                    unsafe_allow_html=True)
         
         # Sidebar filters
-        st.sidebar.title("Dashboard Controls")
+        st.sidebar.title("🎛️ Dashboard Controls")
         
         # === DATA COLLECTION BUTTON ===
-        st.sidebar.subheader("Data Collection")
-        if st.sidebar.button("🔄 Collect New Data", type="primary"):
-            with st.spinner("Collecting data from APIs... This may take a few minutes."):
+        st.sidebar.subheader("🔄 Data Collection")
+        if st.sidebar.button("🔄 Collect New Data", type="primary", use_container_width=True):
+            with st.spinner("🔄 Collecting data from APIs... This may take a few minutes."):
                 try:
                     from data_collector import collect_all_data
                     from data_preprocessor import clean_and_preprocess_data
                     from sentiment_analyzer import analyze_sentiment_with_finbert
                     
                     # Run data collection pipeline
-                    st.sidebar.info("Step 1/3: Collecting data...")
+                    st.sidebar.info("📥 Step 1/3: Collecting data...")
                     df_raw = collect_all_data(QUERY)
                     
                     if not df_raw.empty:
-                        st.sidebar.info("Step 2/3: Preprocessing data...")
+                        st.sidebar.info("🧹 Step 2/3: Preprocessing data...")
                         df_clean = clean_and_preprocess_data()
                         
-                        st.sidebar.info("Step 3/3: Analyzing sentiment...")
+                        st.sidebar.info("🎯 Step 3/3: Analyzing sentiment...")
                         df_sentiment = analyze_sentiment_with_finbert()
                         
-                        st.sidebar.success("Data collection complete!")
+                        st.sidebar.success("✅ Data collection complete!")
                         st.rerun()  # Refresh the dashboard with new data
                     else:
-                        st.sidebar.error("No data collected. Check API keys.")
+                        st.sidebar.error("❌ No data collected. Check API keys.")
                         
                 except Exception as e:
-                    st.sidebar.error(f"Error during data collection: {str(e)}")
+                    st.sidebar.error(f"❌ Error during data collection: {str(e)}")
         
         # Data status
         if self.df.empty:
-            st.sidebar.error("No data available")
+            st.sidebar.error("📭 No data available")
             st.sidebar.info("💡 Click the button above to collect data")
             return
         
         # Filters
+        st.sidebar.subheader("🔍 Filters")
         date_range = self.get_date_filters()
         sector_filter = self.get_sector_filters()
         competitor_filter = self.get_competitor_filters()
+        sentiment_filter = self.get_sentiment_filters()
         
         # Apply filters
-        filtered_df = self.apply_filters(date_range, sector_filter, competitor_filter)
+        filtered_df = self.apply_filters(date_range, sector_filter, competitor_filter, sentiment_filter)
+        
+        # Display filter summary
+        self.display_filter_summary(filtered_df, date_range, sector_filter, competitor_filter, sentiment_filter)
         
         # Main dashboard tabs
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "Overview", 
-            "Competitor Analysis", 
-            "Trend Evolution", 
-            "Alert History", 
-            "Forecast"
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+            "📈 Overview", 
+            "🏢 Competitor Analysis", 
+            "📊 Trend Evolution", 
+            "🚨 Alert History", 
+            "🔮 Forecast",
+            "📋 Data Explorer"
         ])
         
         with tab1:
@@ -154,15 +173,20 @@ class StreamlitDashboard:
         
         with tab5:
             self.render_forecast_tab(filtered_df)
+            
+        with tab6:
+            self.render_data_explorer_tab(filtered_df)
     
     def get_date_filters(self):
         """Date range filter"""
-        st.sidebar.subheader("Time Range")
+        if self.df.empty:
+            return (datetime.now().date() - timedelta(days=30), datetime.now().date())
+            
         min_date = self.df['date'].min().date()
         max_date = self.df['date'].max().date()
         
         date_range = st.sidebar.date_input(
-            "Select date range:",
+            "📅 Select date range:",
             value=(min_date, max_date),
             min_value=min_date,
             max_value=max_date
@@ -174,29 +198,48 @@ class StreamlitDashboard:
     
     def get_sector_filters(self):
         """Sector/focus area filter"""
-        st.sidebar.subheader("Sector Focus")
+        if self.df.empty:
+            return "All"
+            
+        # Get unique sectors from data
+        if 'sector' in self.df.columns:
+            sectors = ["All"] + sorted(self.df['sector'].unique().tolist())
+        else:
+            sectors = ["All", "Technology", "Finance", "Healthcare", "Energy", "Retail", "Manufacturing", "General"]
         
-        # Extract sectors from content (simplified)
-        sectors = ["All", "Technology", "Finance", "Healthcare", "Energy", "Retail", "Manufacturing"]
-        selected_sector = st.sidebar.selectbox("Select sector:", sectors)
+        selected_sector = st.sidebar.selectbox("🏭 Select sector:", sectors)
         
         return selected_sector
     
     def get_competitor_filters(self):
         """Competitor/source filter"""
-        st.sidebar.subheader("Competitor Tracking")
-        
-        if 'source' in self.df.columns:
-            sources = self.df['source'].value_counts().head(15).index.tolist()
-            selected_sources = st.sidebar.multiselect(
-                "Select competitors/sources to track:",
-                options=sources,
-                default=sources[:5] if sources else []
-            )
-            return selected_sources
-        return []
+        if self.df.empty or 'source' not in self.df.columns:
+            return []
+            
+        sources = self.df['source'].value_counts().head(20).index.tolist()
+        selected_sources = st.sidebar.multiselect(
+            "🎯 Select competitors/sources to track:",
+            options=sources,
+            default=sources[:5] if sources else [],
+            help="Select specific sources or competitors to analyze"
+        )
+        return selected_sources
     
-    def apply_filters(self, date_range, sector, competitors):
+    def get_sentiment_filters(self):
+        """Sentiment filter"""
+        sentiments = ["All", "Positive", "Negative", "Neutral"]
+        selected_sentiment = st.sidebar.selectbox("😊 Filter by sentiment:", sentiments)
+        
+        sentiment_map = {
+            "All": None,
+            "Positive": "positive",
+            "Negative": "negative", 
+            "Neutral": "neutral"
+        }
+        
+        return sentiment_map[selected_sentiment]
+    
+    def apply_filters(self, date_range, sector, competitors, sentiment):
         """Apply all filters to data"""
         filtered_df = self.df.copy()
         
@@ -211,183 +254,286 @@ class StreamlitDashboard:
         if competitors and 'source' in filtered_df.columns:
             filtered_df = filtered_df[filtered_df['source'].isin(competitors)]
         
-        # Sector filter (simplified text-based filtering)
-        if sector != "All":
-            filtered_df = filtered_df[
-                filtered_df['content'].str.contains(sector, case=False, na=False) |
-                filtered_df['title'].str.contains(sector, case=False, na=False)
-            ]
+        # Sector filter
+        if sector != "All" and 'sector' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['sector'] == sector]
+        
+        # Sentiment filter
+        if sentiment and 'sentiment' in filtered_df.columns:
+            filtered_df = filtered_df[filtered_df['sentiment'] == sentiment]
         
         return filtered_df
     
+    def display_filter_summary(self, filtered_df, date_range, sector, competitors, sentiment):
+        """Display summary of applied filters"""
+        if filtered_df.empty:
+            st.warning("⚠️ No data available for selected filters.")
+            return
+            
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.metric("📄 Filtered Articles", len(filtered_df))
+        
+        with col2:
+            start_date, end_date = date_range
+            st.metric("📅 Date Range", f"{start_date}\nto {end_date}")
+        
+        with col3:
+            st.metric("🏭 Selected Sector", sector)
+        
+        with col4:
+            comp_count = len(competitors) if competitors else "All"
+            st.metric("🎯 Competitors Tracked", comp_count)
+            
+        with col5:
+            sent_display = sentiment if sentiment else "All"
+            st.metric("😊 Sentiment Filter", sent_display)
+        
+        st.markdown("---")
+    
     def render_overview_tab(self, df):
-        """Render overview dashboard"""
-        st.header("Sentiment Overview")
+        """Render overview dashboard with interactive charts"""
+        st.header("📈 Sentiment Overview")
         
         if df.empty:
-            st.warning("No data available for selected filters.")
+            st.warning("⚠️ No data available for selected filters.")
             return
         
         # Key metrics
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             avg_sentiment = df['sentiment_score'].mean()
-            sentiment_color = "green" if avg_sentiment > 0.1 else "red" if avg_sentiment < -0.1 else "gray"
+            delta_color = "normal"
+            if avg_sentiment > 0.1:
+                delta_color = "normal"
+            elif avg_sentiment < -0.1:
+                delta_color = "inverse"
             st.metric(
-                "Average Sentiment", 
+                "📊 Average Sentiment", 
                 f"{avg_sentiment:.3f}",
-                delta=f"{avg_sentiment:.3f}" if abs(avg_sentiment) > 0.01 else "Neutral"
+                delta=f"{avg_sentiment:.3f}" if abs(avg_sentiment) > 0.01 else "Neutral",
+                delta_color=delta_color
             )
         
         with col2:
             total_articles = len(df)
-            st.metric("Total Articles", f"{total_articles:,}")
+            st.metric("📄 Total Articles", f"{total_articles:,}")
         
         with col3:
             positive_pct = (df['sentiment'] == 'positive').sum() / len(df) * 100
-            st.metric("Positive Articles", f"{positive_pct:.1f}%")
+            st.metric("😊 Positive Articles", f"{positive_pct:.1f}%")
         
         with col4:
+            negative_pct = (df['sentiment'] == 'negative').sum() / len(df) * 100
+            st.metric("😔 Negative Articles", f"{negative_pct:.1f}%")
+            
+        with col5:
             volatility = df['sentiment_score'].std()
-            st.metric("Sentiment Volatility", f"{volatility:.3f}")
+            st.metric("📉 Sentiment Volatility", f"{volatility:.3f}")
         
-        # Sentiment timeline
-        st.subheader("Sentiment Timeline")
-        fig, ax = plt.subplots(figsize=(12, 6))
+        # Interactive Sentiment Timeline
+        st.subheader("📅 Interactive Sentiment Timeline")
         
-        daily_filtered = df.groupby(df['date'].dt.date)['sentiment_score'].mean().reset_index()
-        daily_filtered.columns = ['date', 'sentiment']
-        daily_filtered['date'] = pd.to_datetime(daily_filtered['date'])
+        # Prepare daily data
+        daily_df = df.groupby(df['date'].dt.date).agg({
+            'sentiment_score': ['mean', 'std', 'count']
+        }).reset_index()
+        daily_df.columns = ['date', 'sentiment', 'std', 'count']
+        daily_df['date'] = pd.to_datetime(daily_df['date'])
         
-        ax.plot(daily_filtered['date'], daily_filtered['sentiment'], 
-                color='blue', alpha=0.7, linewidth=2, label='Daily Sentiment')
+        # Create interactive plot
+        fig = go.Figure()
         
-        if len(daily_filtered) >= 7:
-            ma_7 = daily_filtered['sentiment'].rolling(window=7, center=True).mean()
-            ax.plot(daily_filtered['date'], ma_7, 
-                   color='red', linewidth=3, label='7-day Moving Average')
+        # Add sentiment line
+        fig.add_trace(go.Scatter(
+            x=daily_df['date'],
+            y=daily_df['sentiment'],
+            mode='lines+markers',
+            name='Daily Sentiment',
+            line=dict(color='blue', width=3),
+            marker=dict(size=6),
+            hovertemplate='<b>Date:</b> %{x}<br><b>Sentiment:</b> %{y:.3f}<extra></extra>'
+        ))
         
-        ax.axhline(y=0, color='black', linestyle='--', alpha=0.5, label='Neutral')
-        ax.fill_between(daily_filtered['date'], -1, -0.3, alpha=0.2, color='red', label='Negative Zone')
-        ax.fill_between(daily_filtered['date'], 0.3, 1, alpha=0.2, color='green', label='Positive Zone')
+        # Add confidence interval
+        fig.add_trace(go.Scatter(
+            x=daily_df['date'],
+            y=daily_df['sentiment'] + daily_df['std'],
+            mode='lines',
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
         
-        ax.set_title('Sentiment Timeline')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Sentiment Score')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        plt.xticks(rotation=45)
+        fig.add_trace(go.Scatter(
+            x=daily_df['date'],
+            y=daily_df['sentiment'] - daily_df['std'],
+            mode='lines',
+            line=dict(width=0),
+            fill='tonexty',
+            fillcolor='rgba(0,100,255,0.2)',
+            name='Std Dev',
+            hovertemplate='<b>Date:</b> %{x}<br><b>Std Dev:</b> ±%{customdata:.3f}<extra></extra>',
+            customdata=daily_df['std']
+        ))
         
-        st.pyplot(fig)
-        plt.close()
+        # Add moving average if enough data
+        if len(daily_df) >= 7:
+            daily_df['ma_7'] = daily_df['sentiment'].rolling(window=7).mean()
+            fig.add_trace(go.Scatter(
+                x=daily_df['date'],
+                y=daily_df['ma_7'],
+                mode='lines',
+                name='7-day Moving Average',
+                line=dict(color='red', width=2, dash='dash'),
+                hovertemplate='<b>Date:</b> %{x}<br><b>7-day MA:</b> %{y:.3f}<extra></extra>'
+            ))
         
-        # Sentiment distribution
+        # Update layout
+        fig.update_layout(
+            title='Interactive Sentiment Timeline',
+            xaxis_title='Date',
+            yaxis_title='Sentiment Score',
+            hovermode='x unified',
+            height=500,
+            showlegend=True
+        )
+        
+        # Add neutral line
+        fig.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Sentiment distribution and source performance
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Sentiment Distribution")
-            fig, ax = plt.subplots(figsize=(10, 6))
+            st.subheader("📊 Sentiment Distribution")
             
+            # Interactive pie chart
             sentiment_counts = df['sentiment'].value_counts()
-            colors = ['green' if x == 'positive' else 'red' if x == 'negative' else 'gray' 
-                     for x in sentiment_counts.index]
-            
-            ax.bar(sentiment_counts.index, sentiment_counts.values, color=colors, alpha=0.7)
-            ax.set_title('Sentiment Distribution')
-            ax.set_ylabel('Number of Articles')
-            
-            st.pyplot(fig)
-            plt.close()
+            fig_pie = px.pie(
+                values=sentiment_counts.values,
+                names=sentiment_counts.index,
+                color=sentiment_counts.index,
+                color_discrete_map={
+                    'positive': '#28a745',
+                    'negative': '#dc3545', 
+                    'neutral': '#6c757d'
+                },
+                hole=0.4
+            )
+            fig_pie.update_traces(
+                textinfo='percent+label',
+                hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
+            )
+            fig_pie.update_layout(
+                title='Sentiment Distribution',
+                height=400
+            )
+            st.plotly_chart(fig_pie, use_container_width=True)
         
         with col2:
-            st.subheader("Source Performance")
-            if 'source' in df.columns:
-                source_sentiment = df.groupby('source').agg({
+            st.subheader("🏢 Source Performance")
+            if 'source' in df.columns and len(df) > 0:
+                source_metrics = df.groupby('source').agg({
                     'sentiment_score': ['mean', 'count']
                 }).reset_index()
-                source_sentiment.columns = ['source', 'avg_sentiment', 'count']
-                source_sentiment = source_sentiment[source_sentiment['count'] >= 3]
-                source_sentiment = source_sentiment.sort_values('avg_sentiment')
+                source_metrics.columns = ['source', 'avg_sentiment', 'count']
+                source_metrics = source_metrics[source_metrics['count'] >= 3]
                 
-                if not source_sentiment.empty:
-                    fig, ax = plt.subplots(figsize=(10, 6))
-                    
-                    colors = ['red' if x < -0.1 else 'green' if x > 0.1 else 'gray' 
-                             for x in source_sentiment['avg_sentiment']]
-                    
-                    bars = ax.barh(source_sentiment['source'], source_sentiment['avg_sentiment'], 
-                                 color=colors, alpha=0.7)
-                    
-                    ax.axvline(x=0, color='black', linestyle='-', alpha=0.5)
-                    ax.set_title('Average Sentiment by Source')
-                    ax.set_xlabel('Sentiment Score')
-                    ax.grid(True, alpha=0.3, axis='x')
-                    
-                    st.pyplot(fig)
-                    plt.close()
-    
+                if not source_metrics.empty:
+                    # Interactive bar chart
+                    fig_bar = px.bar(
+                        source_metrics.sort_values('avg_sentiment'),
+                        x='avg_sentiment',
+                        y='source',
+                        orientation='h',
+                        color='avg_sentiment',
+                        color_continuous_scale='RdYlGn',
+                        color_continuous_midpoint=0,
+                        hover_data=['count']
+                    )
+                    fig_bar.update_layout(
+                        title='Average Sentiment by Source',
+                        xaxis_title='Average Sentiment Score',
+                        yaxis_title='Source',
+                        height=400,
+                        showlegend=False
+                    )
+                    fig_bar.add_vline(x=0, line_dash="dash", line_color="black", opacity=0.5)
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                else:
+                    st.info("ℹ️ Not enough data for source analysis")
+            else:
+                st.info("ℹ️ No source data available")
+
     def render_competitor_tab(self, df):
-        """Render competitor analysis"""
-        st.header("Competitor & Source Analysis")
+        """Render competitor analysis with interactive charts"""
+        st.header("🏢 Competitor & Source Analysis")
         
         if df.empty:
-            st.warning("No data available for selected filters.")
+            st.warning("⚠️ No data available for selected filters.")
             return
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Market Share by Source")
+            st.subheader("📈 Market Share by Source")
             if 'source' in df.columns:
-                source_counts = df['source'].value_counts().head(8)
+                source_counts = df['source'].value_counts().head(10)
                 
-                fig, ax = plt.subplots(figsize=(10, 8))
-                colors = plt.cm.Set3(np.linspace(0, 1, len(source_counts)))
-                
-                wedges, texts, autotexts = ax.pie(source_counts.values, 
-                                                labels=source_counts.index, 
-                                                autopct='%1.1f%%', 
-                                                colors=colors, 
-                                                startangle=90)
-                
-                for autotext in autotexts:
-                    autotext.set_color('black')
-                    autotext.set_fontweight('bold')
-                
-                ax.set_title('Market Share by Source (Article Volume)')
-                st.pyplot(fig)
-                plt.close()
+                # Interactive treemap
+                fig_treemap = px.treemap(
+                    names=source_counts.index,
+                    parents=[''] * len(source_counts),
+                    values=source_counts.values,
+                    title='Market Share by Source (Article Volume)'
+                )
+                fig_treemap.update_traces(
+                    textinfo='label+value+percent parent',
+                    hovertemplate='<b>%{label}</b><br>Articles: %{value}<br>Market Share: %{percentParent:.1%}<extra></extra>'
+                )
+                st.plotly_chart(fig_treemap, use_container_width=True)
         
         with col2:
-            st.subheader("📈 Source Sentiment Timeline")
+            st.subheader("📊 Source Sentiment Timeline")
             if 'source' in df.columns:
-                # Get top 5 sources by volume
+                # Get top sources
                 top_sources = df['source'].value_counts().head(5).index
                 
-                fig, ax = plt.subplots(figsize=(12, 8))
-                
+                # Prepare data for timeline
+                source_timeline_data = []
                 for source in top_sources:
                     source_data = df[df['source'] == source]
-                    daily_sentiment = source_data.groupby(source_data['date'].dt.date)['sentiment_score'].mean()
+                    daily_sentiment = source_data.groupby(source_data['date'].dt.date)['sentiment_score'].mean().reset_index()
+                    daily_sentiment['source'] = source
+                    source_timeline_data.append(daily_sentiment)
+                
+                if source_timeline_data:
+                    timeline_df = pd.concat(source_timeline_data, ignore_index=True)
                     
-                    if len(daily_sentiment) >= 3:
-                        ax.plot(daily_sentiment.index, daily_sentiment.values, 
-                               marker='o', label=source, linewidth=2, alpha=0.8)
-                
-                ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-                ax.set_title('Sentiment Timeline by Source (Top 5)')
-                ax.set_xlabel('Date')
-                ax.set_ylabel('Average Sentiment Score')
-                ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-                ax.grid(True, alpha=0.3)
-                plt.xticks(rotation=45)
-                
-                st.pyplot(fig)
-                plt.close()
+                    # Interactive line chart
+                    fig_timeline = px.line(
+                        timeline_df,
+                        x='date',
+                        y='sentiment_score',
+                        color='source',
+                        title='Sentiment Timeline by Source (Top 5)',
+                        markers=True
+                    )
+                    fig_timeline.update_layout(
+                        xaxis_title='Date',
+                        yaxis_title='Average Sentiment Score',
+                        height=500
+                    )
+                    fig_timeline.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
+                    st.plotly_chart(fig_timeline, use_container_width=True)
         
         # Source performance ranking
-        st.subheader("Source Performance Ranking")
+        st.subheader("🥇 Source Performance Ranking")
         if 'source' in df.columns:
             source_metrics = df.groupby('source').agg({
                 'sentiment_score': ['mean', 'std', 'count']
@@ -396,203 +542,233 @@ class StreamlitDashboard:
             source_metrics = source_metrics[source_metrics['article_count'] >= 5]
             
             if not source_metrics.empty:
-                # Calculate composite performance score
+                # Calculate performance score
                 source_metrics['performance_score'] = (
                     source_metrics['avg_sentiment'] - 
-                    (source_metrics['sentiment_volatility'] * 0.5)
+                    (source_metrics['sentiment_volatility'] * 0.3)
                 )
-                source_metrics = source_metrics.sort_values('performance_score', ascending=True)
+                source_metrics = source_metrics.sort_values('performance_score')
                 
-                fig, ax = plt.subplots(figsize=(12, 8))
-                
-                colors = ['red' if score < -0.1 else 'green' if score > 0.1 else 'gray' 
-                         for score in source_metrics['performance_score']]
-                
-                bars = ax.barh(source_metrics['source'], source_metrics['performance_score'], 
-                             color=colors, alpha=0.7)
-                
-                # Add performance score labels
-                for bar, score in zip(bars, source_metrics['performance_score']):
-                    width = bar.get_width()
-                    ax.text(width + 0.01 if width >= 0 else width - 0.01, 
-                           bar.get_y() + bar.get_height()/2,
-                           f'{score:.3f}', ha='left' if width >= 0 else 'right', 
-                           va='center', fontweight='bold')
-                
-                ax.axvline(x=0, color='black', linestyle='-', alpha=0.5)
-                ax.set_title('Source Performance Ranking\n(Sentiment - 0.5×Volatility)')
-                ax.set_xlabel('Performance Score')
-                ax.grid(True, alpha=0.3, axis='x')
-                
-                st.pyplot(fig)
-                plt.close()
-    
+                # Interactive bar chart
+                fig_performance = px.bar(
+                    source_metrics,
+                    x='performance_score',
+                    y='source',
+                    orientation='h',
+                    color='performance_score',
+                    color_continuous_scale='RdYlGn',
+                    color_continuous_midpoint=0,
+                    hover_data=['avg_sentiment', 'sentiment_volatility', 'article_count'],
+                    title='Source Performance Ranking (Sentiment - 0.3×Volatility)'
+                )
+                fig_performance.update_layout(
+                    xaxis_title='Performance Score',
+                    yaxis_title='Source',
+                    height=400
+                )
+                fig_performance.add_vline(x=0, line_dash="dash", line_color="black", opacity=0.5)
+                st.plotly_chart(fig_performance, use_container_width=True)
+
     def render_trend_tab(self, df):
-        """Render trend evolution analysis"""
-        st.header("Trend Evolution Analysis")
+        """Render trend evolution analysis with interactive charts"""
+        st.header("📊 Trend Evolution Analysis")
         
         if df.empty:
-            st.warning("No data available for selected filters.")
+            st.warning("⚠️ No data available for selected filters.")
             return
         
         col1, col2 = st.columns(2)
         
         with col1:
-            st.subheader("Rolling Sentiment Trends")
+            st.subheader("📈 Rolling Sentiment Trends")
             
-            daily_sentiment = df.groupby(df['date'].dt.date)['sentiment_score'].mean().reset_index()
-            daily_sentiment.columns = ['date', 'sentiment']
-            daily_sentiment['date'] = pd.to_datetime(daily_sentiment['date'])
-            daily_sentiment = daily_sentiment.sort_values('date')
+            # Prepare daily data
+            daily_df = df.groupby(df['date'].dt.date)['sentiment_score'].mean().reset_index()
+            daily_df.columns = ['date', 'sentiment']
+            daily_df['date'] = pd.to_datetime(daily_df['date'])
+            daily_df = daily_df.sort_values('date')
             
-            if len(daily_sentiment) >= 7:
-                fig, ax = plt.subplots(figsize=(12, 8))
+            if len(daily_df) >= 3:
+                # Calculate rolling averages
+                daily_df['ma_3'] = daily_df['sentiment'].rolling(window=3, center=True).mean()
+                if len(daily_df) >= 7:
+                    daily_df['ma_7'] = daily_df['sentiment'].rolling(window=7, center=True).mean()
+                if len(daily_df) >= 14:
+                    daily_df['ma_14'] = daily_df['sentiment'].rolling(window=14, center=True).mean()
                 
-                # Plot daily data
-                ax.plot(daily_sentiment['date'], daily_sentiment['sentiment'], 
-                       color='lightgray', alpha=0.5, label='Daily', linewidth=1)
+                # Create interactive plot
+                fig = go.Figure()
                 
-                # Plot rolling averages
-                if len(daily_sentiment) >= 3:
-                    ma_3 = daily_sentiment['sentiment'].rolling(window=3, center=True).mean()
-                    ax.plot(daily_sentiment['date'], ma_3, color='blue', linewidth=2, label='3-day MA')
+                # Add daily sentiment
+                fig.add_trace(go.Scatter(
+                    x=daily_df['date'],
+                    y=daily_df['sentiment'],
+                    mode='lines',
+                    name='Daily',
+                    line=dict(color='lightgray', width=1),
+                    opacity=0.7
+                ))
                 
-                if len(daily_sentiment) >= 7:
-                    ma_7 = daily_sentiment['sentiment'].rolling(window=7, center=True).mean()
-                    ax.plot(daily_sentiment['date'], ma_7, color='red', linewidth=2, label='7-day MA')
+                # Add moving averages
+                if 'ma_3' in daily_df.columns:
+                    fig.add_trace(go.Scatter(
+                        x=daily_df['date'],
+                        y=daily_df['ma_3'],
+                        mode='lines',
+                        name='3-day MA',
+                        line=dict(color='blue', width=2)
+                    ))
                 
-                if len(daily_sentiment) >= 14:
-                    ma_14 = daily_sentiment['sentiment'].rolling(window=14, center=True).mean()
-                    ax.plot(daily_sentiment['date'], ma_14, color='green', linewidth=2, label='14-day MA')
+                if 'ma_7' in daily_df.columns:
+                    fig.add_trace(go.Scatter(
+                        x=daily_df['date'],
+                        y=daily_df['ma_7'],
+                        mode='lines',
+                        name='7-day MA',
+                        line=dict(color='red', width=3)
+                    ))
                 
-                ax.axhline(y=0, color='black', linestyle='--', alpha=0.5)
-                ax.set_title('Rolling Sentiment Trends')
-                ax.set_xlabel('Date')
-                ax.set_ylabel('Sentiment Score')
-                ax.legend()
-                ax.grid(True, alpha=0.3)
-                plt.xticks(rotation=45)
+                if 'ma_14' in daily_df.columns:
+                    fig.add_trace(go.Scatter(
+                        x=daily_df['date'],
+                        y=daily_df['ma_14'],
+                        mode='lines',
+                        name='14-day MA',
+                        line=dict(color='green', width=3)
+                    ))
                 
-                st.pyplot(fig)
-                plt.close()
+                fig.update_layout(
+                    title='Rolling Sentiment Trends',
+                    xaxis_title='Date',
+                    yaxis_title='Sentiment Score',
+                    height=500,
+                    hovermode='x unified'
+                )
+                fig.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
+                st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            st.subheader("Sentiment Momentum")
+            st.subheader("🚀 Sentiment Momentum")
             
-            daily_sentiment = df.groupby(df['date'].dt.date)['sentiment_score'].mean().reset_index()
-            daily_sentiment.columns = ['date', 'sentiment']
-            daily_sentiment['date'] = pd.to_datetime(daily_sentiment['date'])
-            daily_sentiment = daily_sentiment.sort_values('date')
-            
-            if len(daily_sentiment) >= 3:
-                # Calculate momentum (daily change)
-                daily_sentiment['momentum'] = daily_sentiment['sentiment'].diff()
-                
-                fig, ax = plt.subplots(figsize=(12, 8))
+            if len(daily_df) >= 3:
+                # Calculate momentum
+                daily_df['momentum'] = daily_df['sentiment'].diff()
                 
                 # Create momentum chart
-                colors = ['green' if x > 0 else 'red' if x < 0 else 'gray' 
-                         for x in daily_sentiment['momentum']]
-                ax.bar(daily_sentiment['date'], daily_sentiment['momentum'], color=colors, alpha=0.7)
-                
-                # Add trend line for momentum
-                valid_momentum = daily_sentiment['momentum'].dropna()
-                if len(valid_momentum) >= 3:
-                    z = np.polyfit(range(len(valid_momentum)), valid_momentum.values, 1)
-                    trend_line = np.poly1d(z)(range(len(valid_momentum)))
-                    ax.plot(daily_sentiment['date'].iloc[1:], trend_line, 
-                           color='black', linewidth=2, linestyle='--', label='Momentum Trend')
-                
-                ax.axhline(y=0, color='black', linestyle='-', alpha=0.5)
-                ax.set_title('Sentiment Momentum (Daily Change)')
-                ax.set_xlabel('Date')
-                ax.set_ylabel('Momentum (Δ Sentiment)')
-                ax.legend()
-                ax.grid(True, alpha=0.3, axis='y')
-                plt.xticks(rotation=45)
-                
-                st.pyplot(fig)
-                plt.close()
-    
+                fig_momentum = px.bar(
+                    daily_df.iloc[1:],  # Skip first row with NaN
+                    x='date',
+                    y='momentum',
+                    color='momentum',
+                    color_continuous_scale='RdYlGn',
+                    color_continuous_midpoint=0,
+                    title='Sentiment Momentum (Daily Change)'
+                )
+                fig_momentum.update_layout(
+                    xaxis_title='Date',
+                    yaxis_title='Momentum (Δ Sentiment)',
+                    height=500,
+                    showlegend=False
+                )
+                fig_momentum.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
+                st.plotly_chart(fig_momentum, use_container_width=True)
+
     def render_alerts_tab(self, df):
         """Render alert history and analysis"""
-        st.header("Alert History & Key Events")
+        st.header("🚨 Alert History & Key Events")
         
         if df.empty:
-            st.warning("No data available for selected filters.")
+            st.warning("⚠️ No data available for selected filters.")
             return
         
         # Calculate alerts
-        daily_sentiment = df.groupby(df['date'].dt.date)['sentiment_score'].mean().reset_index()
-        daily_sentiment.columns = ['date', 'sentiment']
-        daily_sentiment['date'] = pd.to_datetime(daily_sentiment['date'])
+        daily_df = df.groupby(df['date'].dt.date)['sentiment_score'].mean().reset_index()
+        daily_df.columns = ['date', 'sentiment']
+        daily_df['date'] = pd.to_datetime(daily_df['date'])
         
         # Alert summary
-        negative_alerts = len(daily_sentiment[daily_sentiment['sentiment'] <= -0.5])
-        positive_alerts = len(daily_sentiment[daily_sentiment['sentiment'] >= 0.7])
+        negative_alerts = len(daily_df[daily_df['sentiment'] <= -0.5])
+        positive_alerts = len(daily_df[daily_df['sentiment'] >= 0.7])
         total_alerts = negative_alerts + positive_alerts
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("Total Alerts", total_alerts)
+            st.metric("🚨 Total Alerts", total_alerts)
         with col2:
-            st.metric("Negative Alerts", negative_alerts)
+            st.metric("🔻 Negative Alerts", negative_alerts)
         with col3:
-            st.metric("Positive Surges", positive_alerts)
+            st.metric("🚀 Positive Surges", positive_alerts)
         
-        # Alert timeline
-        st.subheader("Alert Events Timeline")
+        # Interactive alert timeline
+        st.subheader("📅 Alert Events Timeline")
         
-        fig, ax = plt.subplots(figsize=(12, 6))
+        fig = go.Figure()
         
-        # Plot sentiment timeline
-        ax.plot(daily_sentiment['date'], daily_sentiment['sentiment'], 
-               color='blue', linewidth=1, alpha=0.7)
+        # Add sentiment timeline
+        fig.add_trace(go.Scatter(
+            x=daily_df['date'],
+            y=daily_df['sentiment'],
+            mode='lines',
+            name='Daily Sentiment',
+            line=dict(color='blue', width=2)
+        ))
         
-        # Mark alert events
-        negative_alerts_data = daily_sentiment[daily_sentiment['sentiment'] <= -0.5]
-        positive_alerts_data = daily_sentiment[daily_sentiment['sentiment'] >= 0.7]
+        # Mark negative alerts
+        negative_data = daily_df[daily_df['sentiment'] <= -0.5]
+        if not negative_data.empty:
+            fig.add_trace(go.Scatter(
+                x=negative_data['date'],
+                y=negative_data['sentiment'],
+                mode='markers',
+                name='Negative Alert',
+                marker=dict(color='red', size=10, symbol='diamond'),
+                hovertemplate='<b>Negative Alert</b><br>Date: %{x}<br>Sentiment: %{y:.3f}<extra></extra>'
+            ))
         
-        for _, row in negative_alerts_data.iterrows():
-            ax.axvline(x=row['date'], color='red', linestyle='--', alpha=0.7)
-            ax.scatter(row['date'], row['sentiment'], color='red', s=100, zorder=5)
-        
-        for _, row in positive_alerts_data.iterrows():
-            ax.axvline(x=row['date'], color='green', linestyle='--', alpha=0.7)
-            ax.scatter(row['date'], row['sentiment'], color='green', s=100, zorder=5)
+        # Mark positive alerts
+        positive_data = daily_df[daily_df['sentiment'] >= 0.7]
+        if not positive_data.empty:
+            fig.add_trace(go.Scatter(
+                x=positive_data['date'],
+                y=positive_data['sentiment'],
+                mode='markers',
+                name='Positive Surge',
+                marker=dict(color='green', size=10, symbol='star'),
+                hovertemplate='<b>Positive Surge</b><br>Date: %{x}<br>Sentiment: %{y:.3f}<extra></extra>'
+            ))
         
         # Add threshold lines
-        ax.axhline(y=-0.5, color='red', linestyle=':', alpha=0.5, label='Negative Threshold')
-        ax.axhline(y=0.7, color='green', linestyle=':', alpha=0.5, label='Positive Threshold')
-        ax.axhline(y=0, color='black', linestyle='-', alpha=0.3, label='Neutral')
+        fig.add_hline(y=-0.5, line_dash="dot", line_color="red", opacity=0.7, annotation_text="Negative Threshold")
+        fig.add_hline(y=0.7, line_dash="dot", line_color="green", opacity=0.7, annotation_text="Positive Threshold")
+        fig.add_hline(y=0, line_dash="dash", line_color="black", opacity=0.5)
         
-        ax.set_title(f'Alert Events Timeline ({total_alerts} events)')
-        ax.set_xlabel('Date')
-        ax.set_ylabel('Sentiment Score')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        plt.xticks(rotation=45)
+        fig.update_layout(
+            title=f'Alert Events Timeline ({total_alerts} events)',
+            xaxis_title='Date',
+            yaxis_title='Sentiment Score',
+            height=500,
+            hovermode='x unified'
+        )
         
-        st.pyplot(fig)
-        plt.close()
+        st.plotly_chart(fig, use_container_width=True)
         
-        # Recent alerts list
-        st.subheader("Recent Alert Details")
+        # Recent alerts table
+        st.subheader("📋 Recent Alert Details")
         
         alerts_list = []
-        for _, row in negative_alerts_data.iterrows():
+        for _, row in negative_data.iterrows():
             alerts_list.append({
                 'date': row['date'],
-                'type': 'Negative Sentiment',
+                'type': '🔻 Negative Sentiment',
                 'sentiment': row['sentiment'],
                 'severity': 'High' if row['sentiment'] < -0.7 else 'Medium'
             })
         
-        for _, row in positive_alerts_data.iterrows():
+        for _, row in positive_data.iterrows():
             alerts_list.append({
                 'date': row['date'],
-                'type': 'Positive Surge',
+                'type': '🚀 Positive Surge',
                 'sentiment': row['sentiment'],
                 'severity': 'High' if row['sentiment'] > 0.8 else 'Medium'
             })
@@ -600,49 +776,67 @@ class StreamlitDashboard:
         if alerts_list:
             alerts_df = pd.DataFrame(alerts_list)
             alerts_df = alerts_df.sort_values('date', ascending=False)
-            st.dataframe(alerts_df.head(10), width='stretch')
+            
+            # Display interactive table
+            st.dataframe(
+                alerts_df.head(20),
+                use_container_width=True,
+                column_config={
+                    "date": st.column_config.DatetimeColumn("📅 Date"),
+                    "type": st.column_config.TextColumn("🚨 Alert Type"),
+                    "sentiment": st.column_config.NumberColumn("📊 Sentiment", format="%.3f"),
+                    "severity": st.column_config.TextColumn("⚠️ Severity")
+                }
+            )
         else:
-            st.info("No alerts triggered in the selected period.")
-    
+            st.info("ℹ️ No alerts triggered in the selected period.")
+
     def render_forecast_tab(self, df):
         """Render forecast analysis"""
-        st.header("Sentiment Forecast")
+        st.header("🔮 Sentiment Forecast")
         
         # Check if forecast files exist
         forecast_files = [
             "sentiment_forecast.csv", 
-            "prophet_forecast.png", 
-            "dashboard_forecast.png"
+            "interactive_forecast.html",
+            "prophet_forecast.png"
         ]
         
         existing_files = [f for f in forecast_files if os.path.exists(f)]
         
         if not existing_files:
             st.warning("""
-            **Forecast data not available**
+            **📭 Forecast data not available**
             
             To generate forecasts:
             1. Run the full pipeline: `python main.py full`
             2. Or run forecasting only: `python main.py forecast`
             """)
+            
+            if st.button("🔮 Generate Forecast Now"):
+                with st.spinner("🔄 Generating forecast... This may take a few minutes."):
+                    try:
+                        from forecasting import forecast_sentiment
+                        forecasts, forecast_df, daily_data = forecast_sentiment()
+                        if forecasts:
+                            st.success("✅ Forecast generated successfully!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Forecast generation failed.")
+                    except Exception as e:
+                        st.error(f"❌ Forecast error: {e}")
             return
         
-        # Display forecast images if available
-        col1, col2 = st.columns(2)
-        
-        if os.path.exists("dashboard_forecast.png"):
-            with col1:
-                st.subheader("Forecast Overview")
-                st.image("dashboard_forecast.png", use_container_width=True)
-        
-        if os.path.exists("prophet_forecast.png"):
-            with col2:
-                st.subheader("Forecast Components")
-                st.image("prophet_forecast.png", use_container_width=True)
+        # Display interactive forecast if available
+        if os.path.exists("interactive_forecast.html"):
+            st.subheader("📈 Interactive Forecast")
+            with open("interactive_forecast.html", "r", encoding="utf-8") as f:
+                html_content = f.read()
+            st.components.v1.html(html_content, height=600, scrolling=True)
         
         # Display forecast data if available
         if os.path.exists("sentiment_forecast.csv"):
-            st.subheader("Forecast Data")
+            st.subheader("📊 Forecast Data")
             forecast_df = pd.read_csv("sentiment_forecast.csv")
             forecast_df['date'] = pd.to_datetime(forecast_df['date'])
             
@@ -651,23 +845,109 @@ class StreamlitDashboard:
             
             with col1:
                 avg_forecast = forecast_df['sentiment'].mean()
-                st.metric("Average Forecast", f"{avg_forecast:.3f}")
+                st.metric("📈 Average Forecast", f"{avg_forecast:.3f}")
             
             with col2:
                 forecast_volatility = forecast_df['sentiment'].std()
-                st.metric("Forecast Volatility", f"{forecast_volatility:.3f}")
+                st.metric("📉 Forecast Volatility", f"{forecast_volatility:.3f}")
             
             with col3:
                 confidence_width = (forecast_df['upper_bound'] - forecast_df['lower_bound']).mean()
-                st.metric("Avg Confidence Width", f"{confidence_width:.3f}")
+                st.metric("🎯 Avg Confidence Width", f"{confidence_width:.3f}")
             
             # Display forecast table
-            st.dataframe(forecast_df, width='stretch')
+            st.dataframe(
+                forecast_df,
+                use_container_width=True,
+                column_config={
+                    "date": st.column_config.DatetimeColumn("📅 Date"),
+                    "sentiment": st.column_config.NumberColumn("📊 Forecast", format="%.3f"),
+                    "lower_bound": st.column_config.NumberColumn("🔽 Lower Bound", format="%.3f"),
+                    "upper_bound": st.column_config.NumberColumn("🔼 Upper Bound", format="%.3f")
+                }
+            )
+
+    def render_data_explorer_tab(self, df):
+        """Render interactive data explorer"""
+        st.header("📋 Data Explorer")
+        
+        if df.empty:
+            st.warning("⚠️ No data available for selected filters.")
+            return
+        
+        # Data summary
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("📄 Total Articles", len(df))
+        with col2:
+            st.metric("🏭 Unique Sources", df['source'].nunique() if 'source' in df.columns else 0)
+        with col3:
+            st.metric("📅 Date Range", f"{df['date'].min().date()} to {df['date'].max().date()}")
+        
+        # Interactive data table
+        st.subheader("🔍 Article Data")
+        
+        # Column selector
+        available_columns = ['title', 'source', 'sector', 'sentiment', 'sentiment_score', 'date', 'description']
+        selected_columns = st.multiselect(
+            "Select columns to display:",
+            options=available_columns,
+            default=['title', 'source', 'sector', 'sentiment', 'sentiment_score', 'date']
+        )
+        
+        if selected_columns:
+            display_df = df[selected_columns].copy()
+            
+            # Configure columns for better display
+            column_config = {}
+            if 'date' in selected_columns:
+                column_config['date'] = st.column_config.DatetimeColumn("📅 Date")
+            if 'sentiment_score' in selected_columns:
+                column_config['sentiment_score'] = st.column_config.NumberColumn("📊 Sentiment", format="%.3f")
+            if 'title' in selected_columns:
+                column_config['title'] = st.column_config.TextColumn("📰 Title", width="large")
+            if 'source' in selected_columns:
+                column_config['source'] = st.column_config.TextColumn("🏢 Source")
+            if 'sector' in selected_columns:
+                column_config['sector'] = st.column_config.TextColumn("🏭 Sector")
+            if 'sentiment' in selected_columns:
+                column_config['sentiment'] = st.column_config.TextColumn("😊 Sentiment")
+            
+            st.dataframe(
+                display_df,
+                use_container_width=True,
+                column_config=column_config,
+                hide_index=True
+            )
+        
+        # Data export
+        st.subheader("💾 Export Data")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("📥 Export Filtered Data to CSV"):
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    label="⬇️ Download CSV",
+                    data=csv,
+                    file_name="filtered_sentiment_data.csv",
+                    mime="text/csv"
+                )
+        
+        with col2:
+            if st.button("📊 Export Summary Statistics"):
+                summary = df.describe(include='all').round(3)
+                st.dataframe(summary, use_container_width=True)
 
 def main():
     """Main Streamlit application"""
-    dashboard = StreamlitDashboard()
-    dashboard.run()
+    try:
+        dashboard = StreamlitDashboard()
+        dashboard.run()
+    except Exception as e:
+        st.error(f"❌ Dashboard error: {e}")
+        st.info("💡 Please check if all data files are available and try collecting data first.")
 
 if __name__ == "__main__":
     main()

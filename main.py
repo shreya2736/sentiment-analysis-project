@@ -3,185 +3,203 @@ Main execution script for the sentiment analysis pipeline
 """
 import pandas as pd
 import sys
+import os
 from data_collector import collect_all_data
 from data_preprocessor import clean_and_preprocess_data
 from sentiment_analyzer import analyze_sentiment_with_finbert
 from forecasting import forecast_sentiment
 from alert_system import check_alerts
-from dashboard import generate_full_dashboard
 from visualization_utils import create_competitor_analysis, create_trend_evolution_analysis, create_alert_history_dashboard
 from config import QUERY
 
 def run_full_pipeline():
     """Run the complete sentiment analysis pipeline"""
     print("="*60)
-    print("STARTING SENTIMENT ANALYSIS PIPELINE")
+    print("🚀 STARTING SENTIMENT ANALYSIS PIPELINE")
     print("="*60)
     
     # Step 1: Data Collection
-    print("\n1. COLLECTING DATA...")
+    print("\n1. 📥 COLLECTING DATA...")
     df = collect_all_data(QUERY)
     if df.empty:
-        print("No data collected. Exiting pipeline.")
+        print("❌ No data collected. Exiting pipeline.")
         return
     
-    print(f"Collected {len(df)} records from various sources")
+    print(f"✅ Collected {len(df)} records from various sources")
     
     # Save collected data
     df.to_csv("industry_insights_clean.csv", index=False)
-    print("ZSaved raw data to: industry_insights_clean.csv")
+    print("💾 Saved raw data to: industry_insights_clean.csv")
     
     # Step 2: Data Preprocessing
-    print("\n2. PREPROCESSING DATA...")
+    print("\n2. 🧹 PREPROCESSING DATA...")
     df_clean = clean_and_preprocess_data()
     if df_clean is None or df_clean.empty:
-        print("Preprocessing failed. Exiting pipeline.")
+        print("❌ Preprocessing failed. Exiting pipeline.")
         return
     
-    # Save preprocessed data (clean_and_preprocess_data already saves it, but we'll confirm)
-    print("Saved preprocessed data to: preprocessed.csv")
+    print("✅ Preprocessing completed")
     
     # Step 3: Sentiment Analysis
-    print("\n3. PERFORMING SENTIMENT ANALYSIS...")
+    print("\n3. 🎯 PERFORMING SENTIMENT ANALYSIS...")
     df_sentiment = analyze_sentiment_with_finbert()
     if df_sentiment is None or df_sentiment.empty:
-        print("Sentiment analysis failed. Exiting pipeline.")
+        print("❌ Sentiment analysis failed. Exiting pipeline.")
         return
     
-    # Save sentiment analysis results (analyze_sentiment_with_finbert already saves it)
-    print("Saved sentiment analysis to: industry_insights_with_financial_sentiment.csv")
+    print("✅ Sentiment analysis completed")
     
     # Step 4: Generate Daily Sentiment Data for Alerts
-    print("\n4. GENERATING DAILY SENTIMENT DATA...")
+    print("\n4. 📊 GENERATING DAILY SENTIMENT DATA...")
     df_sentiment['date'] = pd.to_datetime(df_sentiment['publishedAt'], errors='coerce')
     daily_sentiment = df_sentiment.groupby(df_sentiment['date'].dt.date)['sentiment_score'].mean().reset_index()
     daily_sentiment.columns = ['date', 'avg_sentiment']
     
     # Save daily sentiment data
     daily_sentiment.to_csv("daily_sentiment.csv", index=False)
-    print("Saved daily sentiment data to: daily_sentiment.csv")
+    print("💾 Saved daily sentiment data to: daily_sentiment.csv")
     
     # Step 5: Forecasting
-    print("\n5. GENERATING SENTIMENT FORECAST...")
+    print("\n5. 🔮 GENERATING SENTIMENT FORECAST...")
     try:
         forecasts, forecast_df, daily_data = forecast_sentiment()
         if forecasts:
-            print("Forecasting completed successfully!")
+            print("✅ Forecasting completed successfully!")
             # Save forecast results
             if forecast_df is not None:
                 forecast_df.to_csv("sentiment_forecast.csv", index=False)
-                print("Saved forecast data to: sentiment_forecast.csv")
+                print("💾 Saved forecast data to: sentiment_forecast.csv")
         else:
-            print("Forecasting failed, but continuing with alerts...")
+            print("⚠️ Forecasting failed, but continuing with alerts...")
             forecast_df = None
     except Exception as e:
-        print(f"Forecasting error: {e}")
+        print(f"❌ Forecasting error: {e}")
         forecast_df = None
     
     # Step 6: Check Alerts
-    print("\n6. CHECKING FOR ALERTS...")
-    check_alerts(daily_sentiment, forecast_df=forecast_df)
+    print("\n6. 🚨 CHECKING FOR ALERTS...")
+    try:
+        check_alerts(daily_sentiment, forecast_df=forecast_df)
+        print("✅ Alert check completed")
+    except Exception as e:
+        print(f"⚠️ Alert system error: {e}")
     
-    # Step 7: Generate Dashboard
-    print("\n7. GENERATING STRATEGIC INTELLIGENCE DASHBOARD...")
+    # Step 7: Generate Visualizations
+    print("\n7. 🎨 GENERATING VISUALIZATIONS...")
     try:
         # Use non-interactive backend for matplotlib
         import matplotlib
-        matplotlib.use('Agg')  # This prevents the dashboard from hanging
+        matplotlib.use('Agg')
         import matplotlib.pyplot as plt
         
-        from dashboard import generate_full_dashboard
-        print("  - Starting dashboard generation...")
-        generate_full_dashboard()
-        print("  - Dashboard figures created, closing plots...")
+        print("  - Generating competitor analysis...")
+        create_competitor_analysis(df_sentiment)
+        print("✅ Competitor analysis saved: competitor_analysis.html")
+        
+        print("  - Generating trend evolution analysis...")
+        create_trend_evolution_analysis(df_sentiment)
+        print("✅ Trend analysis saved: trend_evolution.html")
+        
+        print("  - Generating alert history dashboard...")
+        create_alert_history_dashboard(df_sentiment)
+        print("✅ Alert history saved: alert_history.html")
+        
+        # Generate interactive dashboards
+        try:
+            from dashboard import StrategicDashboard
+            dashboard = StrategicDashboard()
+            print("  - Generating interactive overview dashboard...")
+            dashboard.create_interactive_overview_dashboard()
+            print("✅ Interactive overview dashboard saved: interactive_dashboard_overview.html")
+            
+            print("  - Generating interactive forecast dashboard...")
+            dashboard.create_interactive_forecast_dashboard(forecast_df)
+            print("✅ Interactive forecast dashboard saved: interactive_dashboard_forecast.html")
+            
+        except Exception as e:
+            print(f"⚠️ Interactive dashboard generation error: {e}")
         
         # Force close all figures after dashboard generation
         plt.close('all')
-        print("Dashboard generation completed successfully!")
+        print("✅ Visualization generation completed successfully!")
     except Exception as e:
-        print(f"Dashboard generation error: {e}")
-        print("Continuing without dashboard...")
-    
-    # Step 8: Generate Additional Visualizations
-    print("\n8. GENERATING ADDITIONAL VISUALIZATIONS...")
-    try:
-        create_competitor_analysis(df_sentiment)
-        print("Competitor analysis saved: competitor_analysis.png")
-        
-        create_trend_evolution_analysis(df_sentiment)
-        print("Trend analysis saved: trend_evolution.png")
-        
-        create_alert_history_dashboard(df_sentiment)
-        print("Alert history saved: alert_history.png")
-    except Exception as e:
-        print(f"Visualization error: {e}")
-        print("Continuing without additional visualizations...")
+        print(f"⚠️ Visualization error: {e}")
+        print("Continuing without visualizations...")
     
     print("\n" + "="*60)
-    print("PIPELINE COMPLETED SUCCESSFULLY!")
+    print("🎉 PIPELINE COMPLETED SUCCESSFULLY!")
     print("="*60)
-    print(f"Final dataset: {len(df_sentiment)} records")
-    print("\nGenerated files:")
-    print("industry_insights_clean.csv (raw collected data)")
-    print("preprocessed.csv (cleaned data)")
-    print("industry_insights_with_financial_sentiment.csv (sentiment analysis)")
-    print("daily_sentiment.csv (aggregated daily sentiment)")
+    print(f"📊 Final dataset: {len(df_sentiment)} records")
+    print("\n📁 Generated files:")
+    generated_files = [
+        "industry_insights_clean.csv (raw collected data)",
+        "preprocessed.csv (cleaned data)", 
+        "industry_insights_with_financial_sentiment.csv (sentiment analysis)",
+        "daily_sentiment.csv (aggregated daily sentiment)",
+        "competitor_analysis.html (interactive source comparison)",
+        "trend_evolution.html (interactive trend analysis)", 
+        "alert_history.html (interactive alert timeline)"
+    ]
+    
     if forecasts:
-        print("sentiment_forecast.csv (forecast data)")
-        print("prophet_forecast.png (forecast visualization)")
-        print("prophet_components.png (forecast components)")
-    print("dashboard_overview.png (main dashboard)")
-    print("dashboard_forecast.png (forecast dashboard)")
-    print("competitor_analysis.png (source comparison)")
-    print("trend_evolution.png (trend analysis)")
-    print("alert_history.png (alert timeline)")
+        generated_files.extend([
+            "sentiment_forecast.csv (forecast data)",
+            "prophet_forecast.png (forecast visualization)",
+            "prophet_components.png (forecast components)",
+            "interactive_forecast.html (interactive forecast)",
+            "interactive_dashboard_overview.html (interactive overview)",
+            "interactive_dashboard_forecast.html (interactive forecast dashboard)"
+        ])
+    
+    for file_info in generated_files:
+        print(f"  • {file_info}")
 
 def run_data_collection_only():
     """Run only data collection step"""
-    print("Running data collection only...")
+    print("🔄 Running data collection only...")
     df = collect_all_data(QUERY)
     if not df.empty:
         df.to_csv("industry_insights_clean.csv", index=False)
-        print(f"Data collection completed. Collected {len(df)} records.")
-        print("Saved to: industry_insights_clean.csv")
+        print(f"✅ Data collection completed. Collected {len(df)} records.")
+        print("💾 Saved to: industry_insights_clean.csv")
     else:
-        print("No data collected.")
+        print("❌ No data collected.")
 
 def run_preprocessing_only():
     """Run only preprocessing step"""
-    print("Running preprocessing only...")
+    print("🧹 Running preprocessing only...")
     df = clean_and_preprocess_data()
     if df is not None and not df.empty:
-        print(f"Preprocessing completed. Shape: {df.shape}")
-        print("Saved to: preprocessed.csv")
+        print(f"✅ Preprocessing completed. Shape: {df.shape}")
+        print("💾 Saved to: preprocessed.csv")
     else:
-        print("Preprocessing failed.")
+        print("❌ Preprocessing failed.")
 
 def run_sentiment_analysis_only():
     """Run only sentiment analysis step"""
-    print("Running sentiment analysis only...")
+    print("🎯 Running sentiment analysis only...")
     df = analyze_sentiment_with_finbert()
     if df is not None and not df.empty:
-        print(f"Sentiment analysis completed. Shape: {df.shape}")
-        print("Saved to: industry_insights_with_financial_sentiment.csv")
+        print(f"✅ Sentiment analysis completed. Shape: {df.shape}")
+        print("💾 Saved to: industry_insights_with_financial_sentiment.csv")
     else:
-        print("Sentiment analysis failed.")
+        print("❌ Sentiment analysis failed.")
 
 def run_forecasting_only():
     """Run only forecasting step"""
-    print("Running forecasting only...")
+    print("🔮 Running forecasting only...")
     forecasts, forecast_df, daily_data = forecast_sentiment()
     if forecasts:
-        print("✓ Forecasting completed successfully!")
+        print("✅ Forecasting completed successfully!")
         if forecast_df is not None:
             forecast_df.to_csv("sentiment_forecast.csv", index=False)
-            print("Saved forecast data to: sentiment_forecast.csv")
+            print("💾 Saved forecast data to: sentiment_forecast.csv")
     else:
-        print("Forecasting failed.")
+        print("❌ Forecasting failed.")
 
 def run_alerts_only():
     """Run only alerts step"""
-    print("Running alerts only...")
+    print("🚨 Running alerts only...")
     try:
         df = pd.read_csv("industry_insights_with_financial_sentiment.csv")
         df['date'] = pd.to_datetime(df['publishedAt'], errors='coerce')
@@ -190,75 +208,118 @@ def run_alerts_only():
         
         # Save daily sentiment data
         daily_sentiment.to_csv("daily_sentiment.csv", index=False)
-        print("Generated daily sentiment data")
+        print("✅ Generated daily sentiment data")
         
         check_alerts(daily_sentiment)
     except FileNotFoundError:
-        print("Sentiment analysis file not found. Please run the pipeline first.")
+        print("❌ Sentiment analysis file not found. Please run the pipeline first.")
 
-def run_dashboard_only():
-    """Run only dashboard generation"""
-    print("Running dashboard generation only...")
+def run_visualizations_only():
+    """Run only visualizations generation"""
+    print("🎨 Running visualizations only...")
     try:
-        # Use non-interactive backend for matplotlib
-        import matplotlib
-        matplotlib.use('Agg')
-        import matplotlib.pyplot as plt
+        df = pd.read_csv("industry_insights_with_financial_sentiment.csv")
         
-        from dashboard import generate_full_dashboard
-        print("  - Starting dashboard generation...")
-        generate_full_dashboard()
-        print("  - Dashboard function completed")
+        # Generate interactive visualizations
+        create_competitor_analysis(df)
+        print("✅ Competitor analysis saved: competitor_analysis.html")
         
-        # Force close all figures
-        plt.close('all')
-        print("Dashboard generation completed!")
+        create_trend_evolution_analysis(df)
+        print("✅ Trend analysis saved: trend_evolution.html")
+        
+        create_alert_history_dashboard(df)
+        print("✅ Alert history saved: alert_history.html")
+        
+        # Generate interactive dashboards
+        from dashboard import StrategicDashboard
+        dashboard = StrategicDashboard()
+        dashboard.create_interactive_overview_dashboard()
+        print("✅ Interactive overview dashboard saved: interactive_dashboard_overview.html")
+        
+        # Try to load forecast data for forecast dashboard
+        forecast_df = None
+        if os.path.exists("sentiment_forecast.csv"):
+            forecast_df = pd.read_csv("sentiment_forecast.csv")
+            forecast_df['date'] = pd.to_datetime(forecast_df['date'])
+        
+        dashboard.create_interactive_forecast_dashboard(forecast_df)
+        print("✅ Interactive forecast dashboard saved: interactive_dashboard_forecast.html")
+        
+        print("🎉 All visualizations generated successfully!")
+        
+    except FileNotFoundError:
+        print("❌ Sentiment analysis file not found. Please run the pipeline first.")
     except Exception as e:
-        print(f"Dashboard generation failed: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"❌ Visualization generation failed: {e}")
 
 def run_competitor_analysis():
     """Run competitor/source analysis"""
-    print("Running competitor analysis...")
+    print("🏢 Running competitor analysis...")
     try:
         from visualization_utils import create_competitor_analysis
         df = pd.read_csv("industry_insights_with_financial_sentiment.csv")
         create_competitor_analysis(df)
-        print("Competitor analysis completed!")
-        print("Saved to: competitor_analysis.png")
+        print("✅ Competitor analysis completed!")
+        print("💾 Saved to: competitor_analysis.html")
     except FileNotFoundError:
-        print("Sentiment analysis file not found. Please run the pipeline first.")
+        print("❌ Sentiment analysis file not found. Please run the pipeline first.")
     except Exception as e:
-        print(f"Competitor analysis failed: {e}")
+        print(f"❌ Competitor analysis failed: {e}")
 
 def run_trend_analysis():
     """Run trend evolution analysis"""
-    print("Running trend evolution analysis...")
+    print("📈 Running trend evolution analysis...")
     try:
         from visualization_utils import create_trend_evolution_analysis
         df = pd.read_csv("industry_insights_with_financial_sentiment.csv")
         create_trend_evolution_analysis(df)
-        print("Trend analysis completed!")
-        print("Saved to: trend_evolution.png")
+        print("✅ Trend analysis completed!")
+        print("💾 Saved to: trend_evolution.html")
     except FileNotFoundError:
-        print("Sentiment analysis file not found. Please run the pipeline first.")
+        print("❌ Sentiment analysis file not found. Please run the pipeline first.")
     except Exception as e:
-        print(f"Trend analysis failed: {e}")
+        print(f"❌ Trend analysis failed: {e}")
 
 def run_alert_history():
     """Run alert history analysis"""
-    print("Running alert history analysis...")
+    print("🚨 Running alert history analysis...")
     try:
         from visualization_utils import create_alert_history_dashboard
         df = pd.read_csv("industry_insights_with_financial_sentiment.csv")
         create_alert_history_dashboard(df)
-        print("Alert history analysis completed!")
-        print("Saved to: alert_history.png")
+        print("✅ Alert history analysis completed!")
+        print("💾 Saved to: alert_history.html")
     except FileNotFoundError:
-        print("Sentiment analysis file not found. Please run the pipeline first.")
+        print("❌ Sentiment analysis file not found. Please run the pipeline first.")
     except Exception as e:
-        print(f"Alert history analysis failed: {e}")
+        print(f"❌ Alert history analysis failed: {e}")
+
+def show_help():
+    """Show help information"""
+    print("""
+🤖 Strategic Intelligence Dashboard - Help
+
+Available commands:
+  collect      - Run data collection only
+  preprocess   - Run preprocessing only  
+  sentiment    - Run sentiment analysis only
+  forecast     - Run forecasting only
+  alerts       - Run alerts only
+  visualizations - Run visualizations only
+  competitor   - Run competitor/source analysis
+  trends       - Run trend evolution analysis
+  history      - Run alert history analysis
+  full         - Run complete pipeline (default)
+
+Examples:
+  python main.py full          # Run complete pipeline
+  python main.py collect       # Collect new data only
+  python main.py sentiment     # Analyze sentiment on existing data
+  python main.py visualizations # Generate all visualizations
+
+For the web dashboard:
+  streamlit run app.py         # Launch interactive web dashboard
+    """)
 
 if __name__ == "__main__":
     # Command line argument handling
@@ -275,8 +336,8 @@ if __name__ == "__main__":
             run_forecasting_only()
         elif command == "alerts":
             run_alerts_only()
-        elif command == "dashboard":
-            run_dashboard_only()
+        elif command == "visualizations":
+            run_visualizations_only()
         elif command == "competitor":
             run_competitor_analysis()
         elif command == "trends":
@@ -285,26 +346,21 @@ if __name__ == "__main__":
             run_alert_history()
         elif command == "full":
             run_full_pipeline()
+        elif command in ["help", "-h", "--help"]:
+            show_help()
         else:
-            print("Usage: python main.py [command]")
-            print("\nAvailable commands:")
-            print("  collect    - Run data collection only")
-            print("  preprocess - Run preprocessing only")
-            print("  sentiment  - Run sentiment analysis only")
-            print("  forecast   - Run forecasting only")
-            print("  alerts     - Run alerts only")
-            print("  dashboard  - Run dashboard generation only")
-            print("  competitor - Run competitor/source analysis")
-            print("  trends     - Run trend evolution analysis")
-            print("  history    - Run alert history analysis")
-            print("  full       - Run complete pipeline (default)")
+            print(f"❌ Unknown command: {command}")
+            show_help()
     else:
         # Default: run full pipeline
         run_full_pipeline()
 
     # Force cleanup and exit
-    import matplotlib.pyplot as plt
-    plt.close('all')
+    try:
+        import matplotlib.pyplot as plt
+        plt.close('all')
+    except:
+        pass
     
-    print("Pipeline finished - exiting now")
+    print("\n🎯 Pipeline finished - exiting now")
     sys.exit(0)
