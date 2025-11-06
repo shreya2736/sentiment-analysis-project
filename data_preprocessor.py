@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
+
 def clean_date(date_val):
     """Clean and standardize date format"""
     try:

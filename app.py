@@ -23,6 +23,7 @@ load_dotenv()  # ensures Slack token and other env vars are loaded
 st.write("SLACK_BOT_TOKEN found?", bool(os.getenv("SLACK_BOT_TOKEN")))
 st.write("SLACK_CHANNEL found?", bool(os.getenv("SLACK_CHANNEL")))
 
+
 # Configure the page
 st.set_page_config(
     page_title="Strategic Intelligence Dashboard",

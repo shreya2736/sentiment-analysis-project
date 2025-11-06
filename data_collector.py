@@ -12,6 +12,7 @@ import streamlit as st
 from config import *
 import re
 
+
 def is_english_text(text):
     """ULTRA-SIMPLE English detection - only block obvious non-English scripts"""
     if not text or pd.isna(text):

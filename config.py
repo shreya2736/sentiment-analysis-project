@@ -2,6 +2,7 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 
+
 # Load environment variables for local development
 load_dotenv()
 

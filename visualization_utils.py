@@ -11,6 +11,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+
 warnings.filterwarnings('ignore')
 
 def create_competitor_analysis(df, save_path="competitor_analysis.html"):

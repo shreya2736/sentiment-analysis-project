@@ -210,6 +210,7 @@ def check_alerts(df: pd.DataFrame,
 
     print("✅ Alert check completed")
 
+
     # --- SAVE LOG OUTPUT FOR STREAMLIT ---
     sys.stdout = old_stdout
     log_text = log_buffer.getvalue()
