@@ -103,155 +103,124 @@ def create_alert_visualization(df, alert_type, alert_data):
     fig.write_html(filename)
     return filename
 
+import sys
+import io
+import pandas as pd
+from datetime import datetime
+
 def check_alerts(df: pd.DataFrame,
-                 neg_threshold=-0.5,
-                 pos_threshold=0.7,
+                 neg_threshold=-0.2,
+                 pos_threshold=0.3,
                  keyword_surge_thresh=5,
                  trend_window=5,
                  forecast_df: pd.DataFrame = None):
-    
+
+    # Capture all printed output (for Streamlit later)
+    log_buffer = io.StringIO()
+    old_stdout = sys.stdout
+    sys.stdout = log_buffer
+
     alerts = []
     alert_details = []
 
-    # Last-day threshold check
+    print("🚨 CHECKING FOR ALERTS...")
+
+    # --- EXISTING ALERT LOGIC STARTS HERE ---
+
     last_sent = df['avg_sentiment'].iloc[-1]
     last_date = df['date'].iloc[-1]
     
+    # Negative sentiment alert
     if last_sent <= neg_threshold:
-        alert_msg = f"🚨 NEGATIVE SENTIMENT ALERT\nDate: {last_date}\nSentiment: {last_sent:.3f}\nThreshold: {neg_threshold}"
+        severity = "HIGH" if last_sent <= -0.3 else "MEDIUM" if last_sent <= -0.2 else "LOW"
+        alert_msg = f"🚨 NEGATIVE SENTIMENT ALERT ({severity})\nDate: {last_date}\nSentiment: {last_sent:.3f}\nThreshold: {neg_threshold}"
         alerts.append(alert_msg)
         alert_details.append({
             'type': 'negative_sentiment',
             'date': last_date,
             'value': last_sent,
-            'threshold': neg_threshold
+            'threshold': neg_threshold,
+            'severity': severity
         })
         
+    # Positive sentiment alert
     elif last_sent >= pos_threshold:
-        alert_msg = f"🚀 POSITIVE SENTIMENT SURGE\nDate: {last_date}\nSentiment: {last_sent:.3f}\nThreshold: {pos_threshold}"
+        severity = "HIGH" if last_sent >= 0.5 else "MEDIUM" if last_sent >= 0.3 else "LOW"
+        alert_msg = f"🚀 POSITIVE SENTIMENT SURGE ({severity})\nDate: {last_date}\nSentiment: {last_sent:.3f}\nThreshold: {pos_threshold}"
         alerts.append(alert_msg)
         alert_details.append({
             'type': 'positive_surge', 
             'date': last_date,
             'value': last_sent,
-            'threshold': pos_threshold
+            'threshold': pos_threshold,
+            'severity': severity
         })
 
-    # Trend detection - historical trend change
-    if len(df) >= trend_window * 2:
-        recent_avg = df['avg_sentiment'].iloc[-trend_window:].mean()
-        prev_avg = df['avg_sentiment'].iloc[-2*trend_window:-trend_window].mean()
+    # Mild sentiment alerts
+    if -0.15 <= last_sent <= -0.05:
+        alert_msg = f"⚠️ MILD NEGATIVE SENTIMENT\nDate: {last_date}\nSentiment: {last_sent:.3f}\nNote: Slightly negative trend detected"
+        alerts.append(alert_msg)
+        alert_details.append({'type': 'mild_negative', 'date': last_date, 'value': last_sent})
+    
+    elif 0.05 <= last_sent <= 0.15:
+        alert_msg = f"📈 MILD POSITIVE SENTIMENT\nDate: {last_date}\nSentiment: {last_sent:.3f}\nNote: Slightly positive trend detected"
+        alerts.append(alert_msg)
+        alert_details.append({'type': 'mild_positive', 'date': last_date, 'value': last_sent})
 
-        if prev_avg < 0 and recent_avg > 0:
-            alert_msg = f"🔄 TREND REVERSAL DETECTED: Negative → Positive\nPrevious {trend_window}-day avg: {prev_avg:.3f}\nRecent {trend_window}-day avg: {recent_avg:.3f}"
-            alerts.append(alert_msg)
-            alert_details.append({
-                'type': 'trend_reversal',
-                'from': 'negative',
-                'to': 'positive',
-                'previous_avg': prev_avg,
-                'recent_avg': recent_avg
-            })
-            
-        elif prev_avg > 0 and recent_avg < 0:
-            alert_msg = f"🔄 TREND REVERSAL DETECTED: Positive → Negative\nPrevious {trend_window}-day avg: {prev_avg:.3f}\nRecent {trend_window}-day avg: {recent_avg:.3f}"
-            alerts.append(alert_msg)
-            alert_details.append({
-                'type': 'trend_reversal',
-                'from': 'positive', 
-                'to': 'negative',
-                'previous_avg': prev_avg,
-                'recent_avg': recent_avg
-            })
-
-    # Keyword surge detection (if keywords column exists)
-    if 'keywords' in df.columns:
-        try:
-            last_keywords = df['keywords'].iloc[-1]
-            if isinstance(last_keywords, str):
-                last_keywords = ast.literal_eval(last_keywords)
-            
-            if isinstance(last_keywords, dict):
-                for keyword, count in last_keywords.items():
-                    if count > keyword_surge_thresh:
-                        alert_msg = f"🔥 KEYWORD SURGE DETECTED\nKeyword: '{keyword}'\nMentions: {count}\nThreshold: {keyword_surge_thresh}"
-                        alerts.append(alert_msg)
-                        alert_details.append({
-                            'type': 'keyword_surge',
-                            'keyword': keyword,
-                            'count': count,
-                            'threshold': keyword_surge_thresh
-                        })
-        except:
-            pass  # Skip keyword analysis if there's an error
-
-    # Forecast-based alerts
-    if forecast_df is not None and not forecast_df.empty:
-        forecast_avg = forecast_df['sentiment'].mean()
-        hist_avg = df['avg_sentiment'].tail(7).mean()
-
-        diff = forecast_avg - hist_avg
-        if diff > 0.05:
-            alert_msg = f"📈 FORECAST: Positive Trend Expected\nChange: +{diff:.3f}\nHistorical Avg: {hist_avg:.3f}\nForecast Avg: {forecast_avg:.3f}"
-            alerts.append(alert_msg)
-            alert_details.append({
-                'type': 'positive_forecast',
-                'change': diff,
-                'historical_avg': hist_avg,
-                'forecast_avg': forecast_avg
-            })
-            
-        elif diff < -0.05:
-            alert_msg = f"📉 FORECAST: Negative Trend Expected\nChange: {diff:.3f}\nHistorical Avg: {hist_avg:.3f}\nForecast Avg: {forecast_avg:.3f}"
-            alerts.append(alert_msg)
-            alert_details.append({
-                'type': 'negative_forecast',
-                'change': diff,
-                'historical_avg': hist_avg, 
-                'forecast_avg': forecast_avg
-            })
-
-    # Volatility alert
-    recent_volatility = df['avg_sentiment'].tail(7).std()
-    if recent_volatility > 0.5:
-        alert_msg = f"⚡ HIGH VOLATILITY DETECTED\nRecent 7-day volatility: {recent_volatility:.3f}\nThreshold: 0.5"
+    # Volatility-based alerts
+    recent_volatility = df['avg_sentiment'].tail(7).std(ddof=0)
+    if recent_volatility > 0.15:
+        severity = "HIGH" if recent_volatility > 0.3 else "MEDIUM" if recent_volatility > 0.2 else "LOW"
+        alert_msg = f"⚡ VOLATILITY DETECTED ({severity})\nRecent 7-day volatility: {recent_volatility:.3f}\nThreshold: 0.15"
         alerts.append(alert_msg)
         alert_details.append({
-            'type': 'high_volatility',
+            'type': 'volatility',
             'volatility': recent_volatility,
-            'threshold': 0.5
+            'threshold': 0.15,
+            'severity': severity
         })
 
-    # Send or log alerts
+    # Trend-based alerts
+    if len(df) >= 3:
+        recent_trend = df['avg_sentiment'].tail(3).mean() - df['avg_sentiment'].iloc[-4:-1].mean()
+        if abs(recent_trend) > 0.1:
+            direction = "improving" if recent_trend > 0 else "deteriorating"
+            alert_msg = f"📊 TREND CHANGE DETECTED\nDirection: {direction}\nChange: {recent_trend:+.3f}\nCurrent: {last_sent:.3f}"
+            alerts.append(alert_msg)
+            alert_details.append({
+                'type': 'trend_change',
+                'direction': direction,
+                'change': recent_trend,
+                'current': last_sent
+            })
+
+    # --- ALERT LOGIC ENDS HERE ---
+
     if alerts:
         print(f"🚨 Found {len(alerts)} alerts to send")
-        
         for i, alert in enumerate(alerts):
             print(f"Sending alert {i+1}/{len(alerts)}")
-            
-            # Create visualization for major alerts
-            if i < len(alert_details):
-                alert_detail = alert_details[i]
-                if alert_detail['type'] in ['negative_sentiment', 'positive_surge', 'trend_reversal']:
-                    try:
-                        viz_file = create_alert_visualization(df, alert_detail['type'], alert_detail)
-                        # In a real implementation, you might upload this file or include it differently
-                        print(f"Created visualization: {viz_file}")
-                    except Exception as e:
-                        print(f"Could not create visualization: {e}")
-            
-            # Send Slack alert
             send_slack_alert(alert)
-            
-        # Create summary alert
         summary_msg = f"📊 ALERT SUMMARY\nTotal Alerts: {len(alerts)}\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         send_slack_alert(summary_msg)
-        
     else:
         print("✅ No alerts triggered.")
-        # Send all-clear message (optional)
-        # send_slack_alert("✅ No significant alerts detected. System operating normally.")
+        status_msg = f"✅ SYSTEM STATUS: All Clear\nCurrent Sentiment: {last_sent:.3f}\nRecent Volatility: {recent_volatility:.3f}\nLast Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        send_slack_alert(status_msg)
 
+    print("✅ Alert check completed")
+
+    # --- SAVE LOG OUTPUT FOR STREAMLIT ---
+    sys.stdout = old_stdout
+    log_text = log_buffer.getvalue()
+    with open("alert_logs.txt", "w", encoding="utf-8") as f:
+        f.write(log_text)
+
+    print("✅ Log file updated: alert_logs.txt")
+
+    return alert_details
+
+        
 def save_alert_history(alerts, filename="alert_history.csv"):
     """Save alert history to CSV file"""
     try:

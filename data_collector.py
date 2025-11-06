@@ -1,18 +1,61 @@
 from config import *
 import requests
 import pandas as pd
-from serpapi import GoogleSearch
+from serpapi.google_search import GoogleSearch
 import tweepy
 import praw
 import time
 import feedparser
 from datetime import datetime, timedelta
 import json
+import streamlit as st
+from config import *
+import re
+
+def is_english_text(text):
+    """ULTRA-SIMPLE English detection - only block obvious non-English scripts"""
+    if not text or pd.isna(text):
+        return True
+    
+    text_str = str(text)
+    
+    # Only block texts that contain obvious non-English character blocks
+    non_english_scripts = [
+        r'[\u4e00-\u9fff]',  # Chinese characters
+        r'[\u0400-\u04ff]',  # Cyrillic (Russian, etc.)
+        r'[\u0600-\u06ff]',  # Arabic
+        r'[\u0900-\u097f]',  # Devanagari (Hindi)
+        r'[\uac00-\ud7af]',  # Korean Hangul
+        r'[\u3040-\u309f]',  # Japanese Hiragana
+        r'[\u30a0-\u30ff]',  # Japanese Katakana
+    ]
+    
+    for pattern in non_english_scripts:
+        if re.search(pattern, text_str):
+            print(f"🔍 Filtered non-English content: {text_str[:50]}...")
+            return False
+    
+    # If no obvious non-English scripts found, assume it's English
+    return True
+
+# Add this function to handle API limits in cloud
+def safe_data_collection(query, max_results=MAX_RESULTS):
+    """Safe data collection with error handling for cloud deployment"""
+    try:
+        return collect_all_data(query)
+    except Exception as e:
+        # Log error for debugging
+        if 'st' in globals():
+            st.error(f"Data collection error: {e}")
+        print(f"Data collection error: {e}")
+        return pd.DataFrame()
+
 
 def fetch_newsapi(query):
-    """Fetch news from NewsAPI"""
+    """Fetch news from NewsAPI with English language filter"""
     try:
-        url = f"https://newsapi.org/v2/everything?q={query}&pageSize={MAX_RESULTS}&sortBy=publishedAt&apiKey={NEWSAPI_KEY}"
+        # Add language parameter to only get English content
+        url = f"https://newsapi.org/v2/everything?q={query}&pageSize={MAX_RESULTS}&sortBy=publishedAt&language=en&apiKey={NEWSAPI_KEY}"
         response = requests.get(url)
 
         if response.status_code != 200:
@@ -23,7 +66,12 @@ def fetch_newsapi(query):
         news_data = []
 
         for art in articles:
-            sector = determine_sector_from_text(f"{art.get('title', '')} {art.get('description', '')}")
+            # Additional English check
+            title_desc = f"{art.get('title', '')} {art.get('description', '')}"
+            if not is_english_text(title_desc):
+                continue
+                
+            sector = determine_sector_from_text(title_desc)
             news_data.append({
                 "title": art.get("title", ""),
                 "description": art.get("description", ""),
@@ -34,29 +82,34 @@ def fetch_newsapi(query):
                 "content": art.get("content", ""),
                 "sector": sector
             })
-        print(f"✓ NewsAPI: {len(news_data)} articles")
+        print(f"✓ NewsAPI: {len(news_data)} English articles")
         return news_data
     except Exception as e:
         print(f"✗ NewsAPI Error: {e}")
         return []
 
 def fetch_serpapi(query):
-    """Fetch news from SerpAPI"""
+    """Fetch news from SerpAPI with English language preference"""
     try:
         search = GoogleSearch({
             "q": query,
             "api_key": SERPAPI_KEY,
             "tbm": "nws",
             "num": MAX_RESULTS,
-            "hl": "en",
-            "gl": "us"
+            "hl": "en",  # Language: English
+            "gl": "us",   # Country: USA
+            "lr": "lang_en"  # Language restriction: English
         })
 
         results = search.get_dict().get("news_results", [])
         serp_data = []
 
         for item in results:
-            sector = determine_sector_from_text(f"{item.get('title', '')} {item.get('snippet', '')}")
+            title_desc = f"{item.get('title', '')} {item.get('snippet', '')}"
+            if not is_english_text(title_desc):
+                continue
+                
+            sector = determine_sector_from_text(title_desc)
             serp_data.append({
                 "title": item.get("title", ""),
                 "description": item.get("snippet", ""),
@@ -67,53 +120,124 @@ def fetch_serpapi(query):
                 "content": item.get("snippet", ""),
                 "sector": sector
             })
-        print(f"✓ SerpAPI: {len(serp_data)} articles")
+        print(f"✓ SerpAPI: {len(serp_data)} English articles")
         return serp_data
     except Exception as e:
         print(f"✗ SerpAPI Error: {e}")
         return []
+# Replace your fetch_reddit function with this debug version:
 
 def fetch_reddit(query=QUERY, max_words=200):
-    """Fetch posts from Reddit"""
+    """Fetch posts from Reddit with enhanced debugging"""
     try:
+        print(f"🔍 Starting Reddit search for: '{query}'")
+        
+        # Test Reddit credentials
+        print(f"📋 Reddit Config - Client ID: {REDDIT_CLIENT_ID[:10]}..., Client Secret: {REDDIT_CLIENT_SECRET[:10]}..., User Agent: {REDDIT_USER_AGENT}")
+        
         reddit = praw.Reddit(
             client_id=REDDIT_CLIENT_ID,
             client_secret=REDDIT_CLIENT_SECRET,
             user_agent=REDDIT_USER_AGENT
         )
+        
+        # Test authentication
+        try:
+            user = reddit.user.me()
+            print(f"✅ Reddit authenticated as: {user}")
+        except Exception as auth_error:
+            print(f"❌ Reddit authentication failed: {auth_error}")
+            print("💡 Check your Reddit API credentials in config.py")
+            return []
 
-        submissions = reddit.subreddit("all").search(query, limit=100, time_filter='month')
-
+        print(f"📢 Searching Reddit with query: '{query}'")
+        
+        # Try different search approaches
         reddit_data = []
-        for submission in submissions:
-            raw_content = submission.selftext if submission.selftext else submission.title
+        
+        # Approach 1: Search in all subreddits
+        try:
+            submissions = reddit.subreddit("all").search(query, limit=50, time_filter='month')
+            submission_list = list(submissions)
+            print(f"🔍 Found {len(submission_list)} submissions via search")
+            
+            for submission in submission_list:
+                try:
+                    raw_content = submission.selftext if submission.selftext else submission.title
 
-            # Shorten content to max_words
-            words = raw_content.split()
-            if len(words) > max_words:
-                raw_content = " ".join(words[:max_words]) + "..."
+                    # Shorten content to max_words
+                    words = raw_content.split()
+                    if len(words) > max_words:
+                        raw_content = " ".join(words[:max_words]) + "..."
 
-            sector = determine_sector_from_text(f"{submission.title} {raw_content}")
+                    sector = determine_sector_from_text(f"{submission.title} {raw_content}")
 
-            reddit_data.append({
-                "title": submission.title,
-                "description": submission.selftext[:200] + "..." if submission.selftext else submission.title,
-                "url": f"https://www.reddit.com{submission.permalink}",
-                "publishedAt": pd.to_datetime(submission.created_utc, unit="s"),
-                "source": f"Reddit/r/{submission.subreddit.display_name}",
-                "type": "reddit_post",
-                "content": raw_content,
-                "sector": sector
-            })
-        print(f"✓ Reddit: {len(reddit_data)} posts")
+                    reddit_data.append({
+                        "title": submission.title,
+                        "description": submission.selftext[:200] + "..." if submission.selftext else submission.title,
+                        "url": f"https://www.reddit.com{submission.permalink}",
+                        "publishedAt": pd.to_datetime(submission.created_utc, unit="s"),
+                        "source": f"Reddit/r/{submission.subreddit.display_name}",
+                        "type": "reddit_post",
+                        "content": raw_content,
+                        "sector": sector
+                    })
+                    
+                except Exception as post_error:
+                    print(f"⚠️ Error processing post: {post_error}")
+                    continue
+                    
+        except Exception as search_error:
+            print(f"❌ Reddit search failed: {search_error}")
+            
+            # Fallback: Get hot posts from popular subreddits
+            print("🔄 Trying fallback: Getting hot posts from popular subreddits...")
+            try:
+                subreddits = ["technology", "business", "news", "investing", "stocks", "finance"]
+                for subreddit_name in subreddits:
+                    try:
+                        subreddit = reddit.subreddit(subreddit_name)
+                        for submission in subreddit.hot(limit=10):
+                            # Check if query matches
+                            text_content = f"{submission.title} {submission.selftext}".lower()
+                            if any(keyword in text_content for keyword in query.lower().split()):
+                                raw_content = submission.selftext if submission.selftext else submission.title
+                                words = raw_content.split()
+                                if len(words) > max_words:
+                                    raw_content = " ".join(words[:max_words]) + "..."
+
+                                sector = determine_sector_from_text(f"{submission.title} {raw_content}")
+
+                                reddit_data.append({
+                                    "title": submission.title,
+                                    "description": submission.selftext[:200] + "..." if submission.selftext else submission.title,
+                                    "url": f"https://www.reddit.com{submission.permalink}",
+                                    "publishedAt": pd.to_datetime(submission.created_utc, unit="s"),
+                                    "source": f"Reddit/r/{submission.subreddit.display_name}",
+                                    "type": "reddit_post",
+                                    "content": raw_content,
+                                    "sector": sector
+                                })
+                    except Exception as sub_error:
+                        print(f"⚠️ Error in subreddit {subreddit_name}: {sub_error}")
+                        continue
+                        
+            except Exception as fallback_error:
+                print(f"❌ Fallback also failed: {fallback_error}")
+        
+        print(f"✓ Reddit: Processed {len(reddit_data)} posts")
         return reddit_data
+        
     except Exception as e:
         print(f"✗ Reddit API Error: {e}")
+        import traceback
+        print(f"Full traceback: {traceback.format_exc()}")
         return []
 
 def fetch_google_news_rss(query):
-    """Fetch news from Google News RSS"""
+    """Fetch news from Google News RSS with English preference"""
     try:
+        # Add language and region parameters
         base_url = "https://news.google.com/rss/search?q="
         rss_url = f"{base_url}{query.replace(' ', '%20')}&hl=en-US&gl=US&ceid=US:en"
         
@@ -121,7 +245,11 @@ def fetch_google_news_rss(query):
         rss_data = []
         
         for entry in feed.entries[:80]:
-            sector = determine_sector_from_text(f"{entry.title} {entry.get('summary', '')}")
+            title_desc = f"{entry.title} {entry.get('summary', '')}"
+            if not is_english_text(title_desc):
+                continue
+                
+            sector = determine_sector_from_text(title_desc)
             rss_data.append({
                 "title": entry.title,
                 "description": entry.get('summary', ''),
@@ -132,7 +260,7 @@ def fetch_google_news_rss(query):
                 "content": entry.get('summary', ''),
                 "sector": sector
             })
-        print(f"✓ Google News RSS: {len(rss_data)} articles")
+        print(f"✓ Google News RSS: {len(rss_data)} English articles")
         return rss_data
     except Exception as e:
         print(f"✗ Google News RSS Error: {e}")
@@ -237,13 +365,41 @@ def collect_all_data(query):
     return df
 
 def clean_collected_data(df):
-    """Clean and process the collected data"""
+    """Clean and process the collected data with selective English language filtering"""
     # Remove duplicates based on title and URL
     df = df.drop_duplicates(subset=['title', 'url'])
     
     # Handle missing values
     df['description'] = df['description'].fillna(df['title'])
     df['content'] = df['content'].fillna(df['description'])
+    
+    # ✅ SELECTIVE ENGLISH FILTERING - Only for news sources, not for Reddit
+    print("🔍 Filtering obvious non-English content from news sources...")
+    initial_count = len(df)
+    
+    # Apply English filter only to news sources (not Reddit/tweets)
+    news_mask = ~df['source'].str.contains('reddit', case=False, na=False)
+    
+    if news_mask.any():
+        df_news = df[news_mask]
+        df_reddit = df[~news_mask]
+        
+        # Only check news articles for obvious non-English content
+        df_news['is_english'] = df_news.apply(
+            lambda row: is_english_text(f"{row['title']}"),  # Only check title for simplicity
+            axis=1
+        )
+        
+        df_news = df_news[df_news['is_english'] == True]
+        df_news = df_news.drop('is_english', axis=1)
+        
+        # Combine back (Reddit + filtered news)
+        df = pd.concat([df_news, df_reddit], ignore_index=True)
+        
+        removed_count = initial_count - len(df)
+        print(f"✅ Removed {removed_count} obvious non-English news articles")
+    else:
+        print("✅ No English filtering needed - only Reddit data")
     
     # Ensure sector column exists and fill missing values
     if 'sector' not in df.columns:

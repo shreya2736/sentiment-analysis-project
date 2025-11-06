@@ -12,7 +12,7 @@ from plotly.subplots import make_subplots
 warnings.filterwarnings('ignore')
 
 def forecast_sentiment():
-    """Generate sentiment forecasts using Prophet"""
+    """Generate sentiment forecasts using Prophet with better error handling"""
     print("🔮 Starting sentiment forecasting...")
     
     try:
@@ -36,6 +36,12 @@ def forecast_sentiment():
 
         print(f"📊 Prepared {len(daily_sentiment)} days of sentiment data")
         
+        # Check if we have enough data for forecasting
+        if len(daily_sentiment) < 7:
+            print(f"⚠️ Insufficient data for forecasting. Need at least 7 days, have {len(daily_sentiment)}")
+            print("💡 Generating simple trend analysis instead...")
+            return generate_simple_trend_analysis(daily_sentiment), None, daily_sentiment
+        
         # Generate forecast
         forecasts, forecast_df = forecast_with_prophet(daily_sentiment)
         
@@ -48,8 +54,8 @@ def forecast_sentiment():
             
             return forecasts, forecast_df, daily_sentiment
         else:
-            print("❌ Forecasting failed")
-            return None, None, None
+            print("❌ Prophet forecasting failed, using fallback...")
+            return generate_simple_trend_analysis(daily_sentiment), None, daily_sentiment
 
     except Exception as e:
         print(f"❌ Forecasting error: {e}")
@@ -57,8 +63,40 @@ def forecast_sentiment():
         traceback.print_exc()
         return None, None, None
 
+def generate_simple_trend_analysis(daily_sentiment):
+    """Generate simple trend analysis when Prophet fails"""
+    print("📈 Generating simple trend analysis...")
+    
+    forecasts = []
+    
+    if len(daily_sentiment) >= 3:
+        # Calculate simple moving average
+        recent_avg = daily_sentiment['avg_sentiment'].tail(3).mean()
+        trend = "stable"
+        
+        if len(daily_sentiment) >= 5:
+            older_avg = daily_sentiment['avg_sentiment'].iloc[-5:-2].mean()
+            if recent_avg > older_avg + 0.1:
+                trend = "improving"
+            elif recent_avg < older_avg - 0.1:
+                trend = "declining"
+        
+        # Create simple forecast
+        for i in range(1, 8):
+            forecast_date = (daily_sentiment['date'].max() + timedelta(days=i)).strftime('%Y-%m-%d')
+            forecasts.append({
+                'date': forecast_date,
+                'sentiment': recent_avg,
+                'lower_bound': recent_avg - 0.2,
+                'upper_bound': recent_avg + 0.2,
+                'method': 'simple_trend',
+                'trend': trend
+            })
+    
+    return forecasts
+
 def forecast_with_prophet(daily_sentiment):
-    """Generate forecast using Facebook Prophet"""
+    """Generate forecast using Facebook Prophet with enhanced error handling"""
     try:
         print("🤖 Generating forecast with Prophet...")
         
@@ -66,6 +104,13 @@ def forecast_with_prophet(daily_sentiment):
         prophet_df = daily_sentiment[['date', 'avg_sentiment']].copy()
         prophet_df.columns = ['ds', 'y']
         prophet_df = prophet_df.dropna()
+
+        # Check data quality
+        if len(prophet_df) < 7:
+            raise ValueError(f"Need at least 7 days of data, got {len(prophet_df)}")
+        
+        if prophet_df['y'].nunique() <= 1:
+            raise ValueError("Insufficient variation in sentiment data")
 
         print(f"📈 Training on {len(prophet_df)} days of data")
 
@@ -110,6 +155,7 @@ def forecast_with_prophet(daily_sentiment):
         print(f"❌ Prophet forecasting error: {e}")
         return None, None
 
+# Rest of the functions remain the same...
 def create_interactive_forecast_plot(historical_data, forecast_df):
     """Create interactive forecast plot using Plotly"""
     try:
@@ -126,7 +172,7 @@ def create_interactive_forecast_plot(historical_data, forecast_df):
             marker=dict(size=4)
         ))
         
-        # Add forecast
+        # Add forecast if available
         if forecast_df is not None and not forecast_df.empty:
             fig.add_trace(go.Scatter(
                 x=forecast_df['date'],
@@ -195,60 +241,46 @@ def create_prophet_forecast_plot(model, forecast, historical_data):
 def display_forecast_results(forecasts, historical_data):
     """Display forecast results"""
     print("\n" + "="*60)
-    print("🎯 PROPHET SENTIMENT FORECAST RESULTS")
+    print("🎯 SENTIMENT FORECAST RESULTS")
     print("="*60)
 
-    # Show forecasts with confidence intervals
-    print("\n📅 Forecast Results (with 80% confidence intervals):")
-    print("-" * 60)
-    for forecast in forecasts:
-        sentiment_str = f"{forecast['sentiment']:+.3f}"
-        ci_str = f"[{forecast['lower_bound']:+.3f}, {forecast['upper_bound']:+.3f}]"
-        print(f"{forecast['date']}: {sentiment_str} {ci_str}")
+    if forecasts and len(forecasts) > 0:
+        # Show forecasts with confidence intervals
+        print("\n📅 Forecast Results:")
+        print("-" * 60)
+        for forecast in forecasts[:5]:  # Show first 5 days
+            sentiment_str = f"{forecast['sentiment']:+.3f}"
+            if 'lower_bound' in forecast and 'upper_bound' in forecast:
+                ci_str = f"[{forecast['lower_bound']:+.3f}, {forecast['upper_bound']:+.3f}]"
+            else:
+                ci_str = "[no confidence interval]"
+            print(f"{forecast['date']}: {sentiment_str} {ci_str}")
 
-    # Calculate statistics
-    recent_avg = historical_data['avg_sentiment'].tail(7).mean()
-    forecast_avg = np.mean([f['sentiment'] for f in forecasts])
+        # Calculate statistics
+        if historical_data is not None and len(historical_data) > 0:
+            recent_avg = historical_data['avg_sentiment'].tail(min(7, len(historical_data))).mean()
+            forecast_avg = np.mean([f['sentiment'] for f in forecasts])
+            
+            print(f"\n📊 Forecast Analysis:")
+            print("-" * 20)
+            print(f"Recent average: {recent_avg:+.3f}")
+            print(f"Forecasted average: {forecast_avg:+.3f}")
 
-    print(f"\n📊 Forecast Analysis:")
-    print("-" * 20)
-    print(f"Recent 7-day average: {recent_avg:+.3f}")
-    print(f"Forecasted 7-day average: {forecast_avg:+.3f}")
-
-    # Determine trend
-    diff = forecast_avg - recent_avg
-    if diff > 0.1:
-        trend_direction = "🚀 Very strong positive trend"
-    elif diff > 0.05:
-        trend_direction = "📈 Strong positive trend"
-    elif diff > 0.02:
-        trend_direction = "↗️ Moderate positive trend"
-    elif diff < -0.1:
-        trend_direction = "📉 Very strong negative trend"
-    elif diff < -0.05:
-        trend_direction = "🔻 Strong negative trend"
-    elif diff < -0.02:
-        trend_direction = "↘️ Moderate negative trend"
+            # Determine trend
+            diff = forecast_avg - recent_avg
+            if abs(diff) > 0.05:
+                trend_direction = "📈 Improving" if diff > 0 else "📉 Declining"
+            else:
+                trend_direction = "➡️ Stable"
+            
+            print(f"Predicted trend: {trend_direction}")
+            print(f"Method: {forecasts[0].get('method', 'unknown')}")
     else:
-        trend_direction = "➡️ Neutral trend"
-
-    print(f"Predicted direction: {trend_direction}")
-    print(f"Trend change: {diff:+.3f}")
-
-    # Show forecast statistics
-    print(f"\n📈 Forecast Statistics:")
-    print("-" * 20)
-    confidence_widths = [f['upper_bound'] - f['lower_bound'] for f in forecasts]
-    print(f"Average confidence interval width: {np.mean(confidence_widths):.3f}")
-    print(f"Forecast volatility: {np.std([f['sentiment'] for f in forecasts]):.3f}")
-
-    print(f"\n✅ Forecasting completed successfully!")
-    print(f"Generated 7-day sentiment forecast with confidence intervals")
+        print("❌ No forecast generated - insufficient data")
+    
+    print(f"\n✅ Forecasting completed!")
 
 if __name__ == "__main__":
     forecasts, forecast_df, daily_data = forecast_sentiment()
     if forecasts:
-        print(f"\n🎉 Next steps:")
-        print("- Review the generated plots and interactive forecast")
-        print("- Monitor actual sentiment values to validate forecasts")
-        print("- Check the interactive_forecast.html for detailed analysis")
+        print(f"\n🎉 Forecasting completed successfully!")

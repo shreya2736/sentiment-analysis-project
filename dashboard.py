@@ -58,7 +58,7 @@ class StrategicDashboard:
             print("No data available for dashboard")
             return
         
-        # Create subplot figure
+        # Create subplot figure - UPDATED SPECS
         fig = make_subplots(
             rows=3, cols=2,
             subplot_titles=(
@@ -72,7 +72,7 @@ class StrategicDashboard:
             specs=[
                 [{"secondary_y": False}, {"secondary_y": False}],
                 [{"secondary_y": False}, {"secondary_y": False}],
-                [{"secondary_y": False}, {"type": "domain"}]
+                [{"secondary_y": False}, {"secondary_y": False}]  # Changed from "domain" to regular
             ],
             vertical_spacing=0.08,
             horizontal_spacing=0.1
@@ -93,8 +93,8 @@ class StrategicDashboard:
         # 5. Trend Analysis
         self.plot_interactive_trend_analysis(fig, 3, 1)
         
-        # 6. Alert Summary
-        self.plot_interactive_alert_summary(fig, 3, 2)
+        # 6. Alert Summary - UPDATED to use a different visualization
+        self.plot_interactive_alert_summary_fixed(fig, 3, 2)
         
         fig.update_layout(
             title_text='Strategic Intelligence Dashboard - Interactive Overview',
@@ -356,8 +356,8 @@ class StrategicDashboard:
         fig.update_xaxes(title_text="Time Period", row=row, col=col)
         fig.update_yaxes(title_text="Average Sentiment Score", row=row, col=col)
     
-    def plot_interactive_alert_summary(self, fig, row, col):
-        """Plot interactive alert summary"""
+    def plot_interactive_alert_summary_fixed(self, fig, row, col):
+        """Plot interactive alert summary - FIXED VERSION without table"""
         # Calculate key metrics
         total_articles = len(self.df)
         avg_sentiment = self.df['sentiment_score'].mean()
@@ -387,48 +387,33 @@ class StrategicDashboard:
             elif recent_trend < -0.1:
                 alerts.append("📉 Strong negative trend")
         
-        # Create metrics table
-        metrics_data = {
-            'Metric': ['Total Articles', 'Avg Sentiment', 'Volatility', 'Positive %', 'Negative %', 'Neutral %'],
-            'Value': [
-                f"{total_articles:,}",
-                f"{avg_sentiment:.3f}",
-                f"{sentiment_volatility:.3f}",
-                f"{positive_pct:.1f}%",
-                f"{negative_pct:.1f}%", 
-                f"{neutral_pct:.1f}%"
-            ]
-        }
+        # Create a bar chart showing key metrics instead of a table
+        metrics_names = ['Total Articles', 'Avg Sentiment', 'Volatility', 'Positive %', 'Negative %', 'Neutral %']
+        metrics_values = [total_articles, avg_sentiment, sentiment_volatility, positive_pct, negative_pct, neutral_pct]
         
-        metrics_df = pd.DataFrame(metrics_data)
+        # Create colors for the bars
+        colors = ['blue', 'green', 'orange', 'lightgreen', 'lightcoral', 'lightgray']
         
         fig.add_trace(
-            go.Table(
-                header=dict(
-                    values=['<b>Metric</b>', '<b>Value</b>'],
-                    fill_color='lightgray',
-                    align='left',
-                    font=dict(size=12)
-                ),
-                cells=dict(
-                    values=[metrics_df['Metric'], metrics_df['Value']],
-                    fill_color='white',
-                    align='left',
-                    font=dict(size=11)
-                )
+            go.Bar(
+                x=metrics_names,
+                y=metrics_values,
+                marker_color=colors,
+                hovertemplate='<b>%{x}</b><br>Value: %{y:.3f}<extra></extra>',
+                name='Key Metrics'
             ),
             row=row, col=col
         )
         
-        # Add alerts as annotation
+        # Add alerts as annotation (now safe since it's a regular subplot)
         if alerts:
-            alert_text = "<b>ACTIVE ALERTS:</b><br>" + "<br>".join([f"• {alert}" for alert in alerts[:4]])
+            alert_text = "<b>ACTIVE ALERTS:</b><br>" + "<br>".join([f"• {alert}" for alert in alerts[:3]])
         else:
             alert_text = "<b>ACTIVE ALERTS:</b><br>• No alerts triggered"
         
         fig.add_annotation(
-            xref=f"x{col} domain", yref=f"y{col} domain",
-            x=0.05, y=0.95,
+            xref=f"x{col}", yref=f"y{col}",
+            x=0.5, y=0.95 * max(metrics_values),
             text=alert_text,
             showarrow=False,
             align='left',
@@ -437,6 +422,9 @@ class StrategicDashboard:
             borderwidth=1,
             row=row, col=col
         )
+        
+        fig.update_xaxes(title_text="Metrics", row=row, col=col)
+        fig.update_yaxes(title_text="Values", row=row, col=col)
     
     def create_interactive_forecast_dashboard(self, forecast_df=None, save_path="interactive_dashboard_forecast.html"):
         """Create interactive forecast-focused dashboard"""
@@ -543,14 +531,14 @@ class StrategicDashboard:
         fig.update_yaxes(title_text="Sentiment Score", row=row, col=col)
     
     def plot_interactive_forecast_confidence(self, fig, forecast_df, row, col):
-        """Plot interactive forecast confidence analysis"""
+        """Plot interactive forecast confidence analysis - FIXED VERSION"""
         if forecast_df is not None and not forecast_df.empty:
-            days = range(1, len(forecast_df) + 1)
+            days = list(range(1, len(forecast_df) + 1))  # Convert range to list
             confidence_width = forecast_df['upper_bound'] - forecast_df['lower_bound']
             
             fig.add_trace(
                 go.Bar(
-                    x=days,
+                    x=days,  # Now using list instead of range
                     y=confidence_width,
                     marker_color='orange',
                     hovertemplate='Day %{x}<br>CI Width: %{y:.3f}<extra></extra>',
@@ -577,7 +565,6 @@ class StrategicDashboard:
                 showarrow=False,
                 row=row, col=col
             )
-    
     def plot_interactive_forecast_vs_trend(self, fig, forecast_df, row, col):
         """Plot interactive forecast vs recent trend comparison"""
         if forecast_df is not None and not forecast_df.empty:

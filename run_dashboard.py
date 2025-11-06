@@ -66,6 +66,32 @@ def install_dependencies():
     
     return True
 
+def check_environment():
+    """Check if the environment is properly set up for cloud deployment"""
+    print("🔍 Checking environment...")
+    
+    # Check required files (but don't fail if missing in cloud)
+    required_files = [
+        "app.py",
+        "config.py", 
+        "requirements.txt"
+    ]
+    
+    missing_files = []
+    for file in required_files:
+        if not os.path.exists(file):
+            missing_files.append(file)
+    
+    if missing_files:
+        print(f"❌ Missing required files: {', '.join(missing_files)}")
+        # Don't return False immediately for cloud - some files might be created dynamically
+        if "app.py" in missing_files:
+            return False  # app.py is critical
+    
+    # For cloud deployment, data files are optional (will be created)
+    print("✅ Environment check passed (cloud compatible)")
+    return True
+
 def open_browser_delayed():
     """Open browser after a delay"""
     time.sleep(5)  # Wait for Streamlit to start

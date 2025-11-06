@@ -19,7 +19,7 @@ def create_competitor_analysis(df, save_path="competitor_analysis.html"):
         print("No data available for competitor analysis")
         return
     
-    # Create subplots
+    # Create subplots - UPDATED SPECS for bar chart compatibility
     fig = make_subplots(
         rows=2, cols=2,
         subplot_titles=(
@@ -29,8 +29,8 @@ def create_competitor_analysis(df, save_path="competitor_analysis.html"):
             'Source Performance Ranking'
         ),
         specs=[
-            [{"secondary_y": False}, {"type": "pie"}],
-            [{"type": "heatmap"}, {"type": "bar"}]
+            [{"secondary_y": False}, {"secondary_y": False}],  # Changed from "pie" to regular
+            [{"type": "heatmap"}, {"secondary_y": False}]      # Changed from "bar" to regular
         ],
         vertical_spacing=0.1,
         horizontal_spacing=0.1
@@ -94,21 +94,25 @@ def plot_sentiment_by_source_timeline_interactive(df, fig, row, col):
     fig.update_yaxes(title_text="Average Sentiment Score", row=row, col=col)
 
 def plot_source_market_share_interactive(df, fig, row, col):
-    """Plot interactive market share by source"""
+    """Plot interactive market share by source - USING BAR CHART INSTEAD"""
     source_counts = df['source'].value_counts().head(8)
     
+    # Use horizontal bar chart instead of pie chart for better subplot compatibility
     fig.add_trace(
-        go.Pie(
-            labels=source_counts.index,
-            values=source_counts.values,
-            hole=0.4,
-            textinfo='label+percent',
-            hovertemplate='<b>%{label}</b><br>Articles: %{value}<br>Percentage: %{percent}<extra></extra>',
-            marker=dict(colors=px.colors.qualitative.Pastel)
+        go.Bar(
+            x=source_counts.values,
+            y=source_counts.index,
+            orientation='h',
+            marker_color=px.colors.qualitative.Pastel,
+            hovertemplate='<b>%{y}</b><br>Articles: %{x}<br>Market Share: %{customdata:.1f}%<extra></extra>',
+            customdata=(source_counts.values / source_counts.values.sum() * 100),
+            name="Market Share"
         ),
         row=row, col=col
     )
-
+    
+    fig.update_xaxes(title_text="Article Count", row=row, col=col)
+    fig.update_yaxes(title_text="Source", row=row, col=col)
 def plot_source_sentiment_heatmap_interactive(df, fig, row, col):
     """Create interactive heatmap of sentiment by source and time period"""
     df['date'] = pd.to_datetime(df['publishedAt'], errors='coerce')
