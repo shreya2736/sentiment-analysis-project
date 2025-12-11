@@ -23,6 +23,18 @@ load_dotenv()  # ensures Slack token and other env vars are loaded
 st.write("SLACK_BOT_TOKEN found?", bool(os.getenv("SLACK_BOT_TOKEN")))
 st.write("SLACK_CHANNEL found?", bool(os.getenv("SLACK_CHANNEL")))
 
+IS_CLOUD = os.getenv('STREAMLIT_CLOUD', False) or 'STREAMLIT_SHARING' in os.environ
+
+if IS_CLOUD:
+    st.info("🌤️ Running in cloud mode with optimized settings")
+    
+    # Disable heavy operations in cloud
+    @st.cache_data(ttl=3600, show_spinner=False)
+    def load_data_cloud():
+        try:
+            return pd.read_csv("industry_insights_with_financial_sentiment.csv")
+        except:
+            return pd.DataFrame()
 
 # Configure the page
 st.set_page_config(

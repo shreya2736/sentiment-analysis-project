@@ -36,3 +36,6 @@ SLACK_CHANNEL = get_secret("SLACK_CHANNEL", "#alerts")
 # Reduce limits for cloud deployment to avoid timeouts
 QUERY = "Business OR market OR Artificial Intelligence OR finance OR technology"
 MAX_RESULTS = 50  # Reduced from 100 for cloud compatibility
+
+# Cloud deployment check
+IS_CLOUD = os.getenv('STREAMLIT_CLOUD', False) or 'STREAMLIT_SHARING' in os.environ
