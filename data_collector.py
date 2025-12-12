@@ -1,7 +1,7 @@
 from config import *
 import requests
 import pandas as pd
-from serpapi.google_search import GoogleSearch
+
 import tweepy
 import praw
 import time
@@ -92,6 +92,17 @@ def fetch_newsapi(query):
 def fetch_serpapi(query):
     """Fetch news from SerpAPI with English language preference"""
     try:
+        # ✅ CHECK 1: Is API key configured?
+        if not SERPAPI_KEY or SERPAPI_KEY == "your_serpapi_key_here":
+            print("⚠️  SerpAPI key not configured - skipping SerpAPI")
+            return []
+        try:
+            from serpapi.google_search import GoogleSearch
+        except ImportError:
+            print("⚠️  serpapi module not installed - skipping SerpAPI")
+            print("💡 To use SerpAPI, add 'google-search-results' to requirements.txt")
+            return []
+    
         search = GoogleSearch({
             "q": query,
             "api_key": SERPAPI_KEY,

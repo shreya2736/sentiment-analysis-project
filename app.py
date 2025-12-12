@@ -149,7 +149,7 @@ class StreamlitDashboard:
         """Load data with cloud compatibility and better error handling"""
         try:
             # ✅ ALWAYS load from file first after data collection to ensure fresh data
-            @st.cache_data(ttl=60)  # 1 minute cache
+            @st.cache_data(show_spinner=False)  # removed ttl=60
             def load_sentiment_data():
                 try:
                     df = pd.read_csv("industry_insights_with_financial_sentiment.csv")
@@ -237,6 +237,7 @@ class StreamlitDashboard:
                         
                         # Clear ALL caches to force fresh load
                         st.cache_data.clear()
+                        st.cache_resource.clear()
                         
                         # Clear session state to force reload from file
                         if 'current_data' in st.session_state:
@@ -248,7 +249,12 @@ class StreamlitDashboard:
                         
                         # Small delay to show completion message
                         import time
-                        time.sleep(1)
+                        time.sleep(2)
+
+                        # ✅ Show success message before rerun
+                        st.success(f"✅ Successfully collected {len(df_sentiment)} articles with sentiment analysis!")
+                        st.info("🔄 Dashboard will refresh in 2 seconds...")
+                        time.sleep(2)
                         
                         # Force complete reload
                         st.rerun()
