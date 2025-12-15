@@ -16,8 +16,7 @@ import contextlib
 from alert_system import check_alerts
 from slack_sdk import WebClient
 from dotenv import load_dotenv
-import os
-import streamlit as st
+
 
 # Load environment variables
 load_dotenv()
