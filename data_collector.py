@@ -55,9 +55,14 @@ def safe_data_collection(query, max_results=MAX_RESULTS):
 def fetch_newsapi(query):
     """Fetch news from NewsAPI with English language filter"""
     try:
+
+        if not NEWSAPI_KEY or NEWSAPI_KEY == "your_newsapi_key_here":
+            print("⚠️ NewsAPI key not configured - skipping NewsAPI")
+            return []
+        
         # Add language parameter to only get English content
         url = f"https://newsapi.org/v2/everything?q={query}&pageSize={MAX_RESULTS}&sortBy=publishedAt&language=en&apiKey={NEWSAPI_KEY}"
-        response = requests.get(url)
+        response = requests.get(url,timeout=10)
 
         if response.status_code != 200:
             print(f"NewsAPI Error: {response.status_code} - {response.text}")
@@ -142,6 +147,21 @@ def fetch_serpapi(query):
 def fetch_reddit(query=QUERY, max_words=200):
     """Fetch posts from Reddit with enhanced debugging"""
     try:
+        # ✅ CHECK: Are Reddit credentials configured?
+        if not REDDIT_CLIENT_ID or REDDIT_CLIENT_ID == "your_reddit_client_id_here":
+            print("⚠️ Reddit credentials not configured - skipping Reddit")
+            return []
+        
+        if not REDDIT_CLIENT_SECRET or REDDIT_CLIENT_SECRET == "your_reddit_client_secret_here":
+            print("⚠️ Reddit credentials not configured - skipping Reddit")
+            return []
+        
+        try:
+            import praw
+        except ImportError:
+            print("⚠️ praw module not installed - skipping Reddit")
+            return []
+        
         print(f"🔍 Starting Reddit search for: '{query}'")
         
         # Test Reddit credentials
@@ -378,6 +398,9 @@ def collect_all_data(query):
 
 def clean_collected_data(df):
     """Clean and process the collected data with selective English language filtering"""
+    if df.empty:
+        return df
+    
     # Remove duplicates based on title and URL
     df = df.drop_duplicates(subset=['title', 'url'])
     

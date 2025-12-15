@@ -2,7 +2,7 @@ import re
 import pandas as pd
 import numpy as np
 from datetime import datetime
-
+import os
 
 def clean_date(date_val):
     """Clean and standardize date format"""
@@ -114,6 +114,10 @@ def clean_and_preprocess_data():
         print(f"📊 Final preprocessed shape: {df.shape}")
         
         return df
+    except FileNotFoundError as e:
+        print(f"❌ File not found: {e}")
+        print("💡 Make sure to run data collection first")
+        return pd.DataFrame()
 
     except Exception as e:
         print(f"❌ Preprocessing error: {e}")

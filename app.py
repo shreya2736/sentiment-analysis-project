@@ -988,8 +988,8 @@ class StreamlitDashboard:
             with open(log_file, "r", encoding="utf-8") as f:
                 log_content = f.read().strip()
             if log_content:
-                log_lines = log_content.splitlines()[-100:]
-                st.text_area("📜 Latest Alert Logs", "\n".join(log_lines), height=300)
+                log_lines = log_content.splitlines()
+                st.text_area("📜 All Alert Logs", "\n".join(log_lines), height=300)
             else:
                 st.info("ℹ️ Log file is empty. No alerts recorded yet.")
         else:
@@ -1285,17 +1285,6 @@ class StreamlitDashboard:
                 if st.button("📊 Export Summary Statistics"):
                     summary = display_data.describe(include='all').round(3)
                     st.dataframe(summary, use_container_width=True)
-            
-            # Quick data validation
-            st.subheader("🔍 Data Validation")
-            if not self.df.empty:
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Data Age", f"{(pd.Timestamp.now() - self.df['date'].max()).days} days")
-                with col2:
-                    st.metric("Missing Sentiment", f"{self.df['sentiment_score'].isna().sum()}")
-                with col3:
-                    st.metric("Data File", "industry_insights_with_financial_sentiment.csv")
 
 def main():
     """Main Streamlit application"""

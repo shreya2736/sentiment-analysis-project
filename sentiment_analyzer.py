@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 from typing import Dict, List
 import re
+import os
+import streamlit as st
 
 class SentimentAnalyzer:
     def __init__(self):
@@ -15,6 +17,11 @@ class SentimentAnalyzer:
         try:
             print("🔄 Loading FinBERT model and tokenizer...")
             model_name = "ProsusAI/finbert"
+            # Check if running on cloud with limited resources
+            is_cloud = os.getenv('STREAMLIT_CLOUD', False) or 'STREAMLIT_SHARING' in os.environ
+            
+            if is_cloud:
+                print("☁️ Cloud environment detected - using optimized settings")
             self.tokenizer = AutoTokenizer.from_pretrained(model_name)
             self.finbert = pipeline(
                 "sentiment-analysis", 
@@ -58,29 +65,42 @@ class SentimentAnalyzer:
             return ""
         
         text_str = str(text)
-        
-        # Tokenize the text
-        tokens = self.tokenizer.encode(text_str, truncation=False)
-        
-        # If text is within limit, return as is
-        if len(tokens) <= max_tokens:
-            return text_str
-        
-        # Truncate tokens and convert back to text
-        truncated_tokens = tokens[:max_tokens]
-        truncated_text = self.tokenizer.decode(truncated_tokens, skip_special_tokens=True)
-        
-        return truncated_text
+
+        if not self.tokenizer:
+            # Fallback: truncate by characters
+            return text_str[:1500]
+        try:
+            # Tokenize the text
+            tokens = self.tokenizer.encode(text_str, truncation=False)
+            
+            # If text is within limit, return as is
+            if len(tokens) <= max_tokens:
+                return text_str
+            
+            # Truncate tokens and convert back to text
+            truncated_tokens = tokens[:max_tokens]
+            truncated_text = self.tokenizer.decode(truncated_tokens, skip_special_tokens=True)
+            
+            return truncated_text
+        except Exception as e:
+           print(f"⚠️ Token truncation error: {e}")
+           return text_str[:1500] 
+
     
     def analyze_sentiment_finbert(self, text):
         """Analyze sentiment using FinBERT with proper text truncation"""
         if not text or pd.isna(text) or len(str(text).strip()) == 0:
             return {"label": "neutral", "score": 0.0, "sentiment_score": 0.0}
         
+        if not self.finbert:
+            return self.analyze_sentiment_fallback(text)
+        
         try:
             # Truncate text properly by tokens
             if self.tokenizer:
                 truncated_text = self.truncate_text_by_tokens(text, max_tokens=500)
+                if not truncated_text or len(truncated_text.strip()) < 10:
+                    return {"label": "neutral", "score": 0.0, "sentiment_score": 0.0}
             else:
                 # Fallback: truncate by characters (less accurate)
                 truncated_text = str(text)[:1500]
@@ -142,6 +162,25 @@ def analyze_sentiment_with_finbert():
     print("🎯 Starting sentiment analysis...")
     
     try:
+        # Check if preprocessed file exists
+        if not os.path.exists("preprocessed.csv"):
+            print("❌ preprocessed.csv not found. Looking for industry_insights_clean.csv...")
+            
+            if not os.path.exists("industry_insights_clean.csv"):
+                print("❌ No data files found. Please run data collection first.")
+                return pd.DataFrame()
+            
+            # If preprocessed doesn't exist, use clean file
+            df = pd.read_csv("industry_insights_clean.csv")
+            print("📥 Using industry_insights_clean.csv")
+        else:
+            df = pd.read_csv("preprocessed.csv")
+            print(f"📥 Loaded {len(df)} records from preprocessed.csv")
+        
+        if df.empty:
+            print("❌ Data file is empty")
+            return pd.DataFrame()
+        
         # Load preprocessed data
         df = pd.read_csv("preprocessed.csv")
         print(f"📥 Loaded {len(df)} records for sentiment analysis")
